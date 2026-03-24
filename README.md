@@ -1,147 +1,128 @@
-# NexChat 🚀
+# 🚀 NexChat – Real-Time Messaging Platform
 
-> **Connect. Chat. Share.** — A modern real-time messaging application.
+NexChat is a modern real-time chat application inspired by WhatsApp, built to deliver fast, secure, and scalable communication across web and mobile platforms.
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 14 (App Router), React, CSS Custom Properties |
-| **Backend** | Node.js, Express, Socket.IO |
-| **Database** | PostgreSQL 16 |
-| **Auth** | JWT (Access + Refresh tokens), bcrypt |
-| **Real-time** | Socket.IO WebSockets |
-| **Cache** | Redis |
-| **DevOps** | Docker Compose |
+## ✨ Features
 
-## Architecture
+* 💬 Real-time messaging (1:1 & group chat)
+* 🟢 Online/Offline user presence
+* 📎 Media sharing (images, files)
+* 🔔 Push notifications
+* 📞 Voice & Video calling (Agora/Twilio integration)
+* 🔐 End-to-end encryption (planned)
+* ⚡ Fast and scalable architecture
 
-```
+---
+
+## 🏗️ Tech Stack
+
+### Frontend
+
+* React.js / Next.js
+* Tailwind CSS
+* Redux / Context API
+
+### Backend
+
+* Node.js
+* Express.js
+
+### Real-Time Communication
+
+* Socket.IO / WebSockets
+
+### Database
+
+* MongoDB / Firebase Firestore
+
+### Services
+
+* Firebase (Authentication & Notifications)
+* Agora / Twilio (Calling)
+
+---
+
+## 📁 Project Structure
+
 NexChat/
-├── Backend/          # Node.js + Express API & Socket.IO server
-│   ├── src/
-│   │   ├── config/   # Database configuration
-│   │   ├── db/       # SQL schema
-│   │   ├── middleware/# JWT authentication
-│   │   ├── routes/   # REST API routes (10 modules)
-│   │   ├── socket/   # WebSocket event handlers
-│   │   ├── app.js    # Express application
-│   │   └── server.js # HTTP + Socket.IO server
-│   └── package.json
-├── Frontend/         # Next.js 14 web application
-│   └── src/
-│       ├── app/      # Pages (splash, auth, chat, settings, profile)
-│       ├── context/  # React Context (Auth)
-│       └── lib/      # API wrapper, Socket.IO client
-├── Docker/           # Docker Compose configuration
-│   └── docker-compose.yml
-└── Mobile/           # Expo React Native (scaffolding)
-```
+├── Frontend/       # Frontend (React)
+├── Backend/        # Backend (Node.js)
+├── Mobile/         # Mobile App (optional)
+├── Docker/         # Docker setup
+├── README.md
 
-## Features
+---
 
-- ✅ **Real-time Messaging** — WebSocket-powered instant messaging
-- ✅ **Group Chats** — Create groups, add members, @mentions
-- ✅ **Message Status** — Sent, delivered, read ticks
-- ✅ **Typing Indicators** — Real-time "typing..." status
-- ✅ **Media Sharing** — Image, video, audio, file uploads (50MB)
-- ✅ **Status/Stories** — 24-hour ephemeral statuses
-- ✅ **Voice/Video Calls** — Call signaling via WebSockets
-- ✅ **User Search** — Find users by username or name
-- ✅ **Privacy Controls** — Last seen, profile photo, read receipts
-- ✅ **Dark Mode** — Full dark/light theme support
-- ✅ **JWT Auth** — Access + refresh token rotation
-- ✅ **Contact Management** — Add, search, block contacts
+## ⚙️ Installation & Setup
 
-## Quick Start
+### 1. Clone the repository
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 16 (or Docker)
-- npm
+git clone https://github.com/vedantdubey19/NexChat.git
+cd NexChat
 
-### Option 1: Docker (Recommended)
+### 2. Install dependencies
 
-```bash
-cd Docker
-docker-compose up -d
-```
-
-App will be available at `http://localhost:3000`.
-
-### Option 2: Manual Setup
-
-**1. Database**
-```bash
-# Create PostgreSQL database
-createdb nexchat
-psql nexchat < Backend/src/db/schema.sql
-```
-
-**2. Backend**
-```bash
+Backend:
 cd Backend
-cp .env.example .env   # Edit with your DB credentials
 npm install
-npm run dev             # Starts on port 3001
-```
 
-**3. Frontend**
-```bash
+Frontend:
+cd ../Frontend
+npm install
+
+---
+
+### 3. Environment Variables
+
+Create a `.env` file in Backend:
+
+PORT=5000
+MONGO_URI=your_mongodb_url
+JWT_SECRET=your_secret
+
+FIREBASE_API_KEY=your_key
+
+AGORA_APP_ID=your_id
+AGORA_APP_CERTIFICATE=your_certificate
+
+---
+
+### 4. Run the project
+
+Start Backend:
+cd Backend
+npm run dev
+
+Start Frontend:
 cd Frontend
-npm install
-npm run dev             # Starts on port 3000
-```
+npm start
 
-## API Endpoints
+---
 
-| Module | Endpoints |
-|--------|----------|
-| **Auth** | `POST /api/auth/register`, `/login`, `/refresh`, `/logout` |
-| **Users** | `GET /api/users/profile`, `PUT /api/users/profile`, `GET /api/users/search` |
-| **Chats** | `GET /api/chats`, `POST /api/chats`, `GET /api/chats/:id/messages` |
-| **Messages** | `POST /api/messages`, `PUT /api/messages/:id/react`, `DELETE /api/messages/:id` |
-| **Groups** | `POST /api/groups`, `GET /api/groups/:id`, `PUT /api/groups/:id` |
-| **Media** | `POST /api/media/upload`, `GET /api/media/:chatId` |
-| **Status** | `POST /api/status`, `GET /api/status/feed`, `GET /api/status/:id/viewers` |
-| **Contacts** | `GET /api/contacts`, `POST /api/contacts/sync`, `GET /api/contacts/search` |
-| **Calls** | `POST /api/calls/initiate`, `GET /api/calls/history` |
-| **Settings** | `GET /api/settings`, `PUT /api/settings`, `PUT /api/settings/privacy` |
+## 🔮 Future Improvements
 
-## WebSocket Events
+* 🔐 End-to-End Encryption
+* 🤖 AI Chat Integration
+* 🌍 Multi-language support
+* 📊 Admin Dashboard
 
-| Event | Direction | Description |
-|-------|-----------|------------|
-| `message:send` | Client → Server | Send a new message |
-| `message:new` | Server → Client | New message broadcast |
-| `message:delivered` | Client → Server | Mark message delivered |
-| `message:seen` | Client → Server | Mark message read |
-| `message:status` | Server → Client | Message status update |
-| `typing:start` | Bidirectional | Typing indicator on |
-| `typing:stop` | Bidirectional | Typing indicator off |
-| `user:online` | Server → Client | User came online |
-| `user:offline` | Server → Client | User went offline |
-| `call:initiate` | Client → Server | Start a call |
-| `call:incoming` | Server → Client | Incoming call notification |
-| `call:answer` | Client → Server | Answer a call |
-| `call:end` | Client → Server | End a call |
+---
 
-## Database Schema
+## 🤝 Contributing
 
-13 tables: `users`, `user_settings`, `contacts`, `chats`, `chat_members`, `messages`, `message_status`, `message_reactions`, `media`, `statuses`, `status_viewers`, `calls`, `sessions`
+Fork → Clone → Create Branch → Commit → Push → Pull Request
 
-See [`Backend/src/db/schema.sql`](Backend/src/db/schema.sql) for the full DDL.
+---
 
-## Design System
+## 👨‍💻 Author
 
-Built on the "NexChat Lumina" design language:
-- **Primary**: `#2563EB` (Blue)
-- **Accent**: `#10B981` (Emerald)
-- **Danger**: `#EF4444` (Red)
-- **Typography**: Inter font family
-- **Surfaces**: Tonal layering (no harsh borders)
-- **Animations**: Spring-based micro-interactions
+Vedant Dubey
+GitHub: https://github.com/vedantdubey19
 
-## License
+---
 
-MIT
+## ⭐ Support
+
+If you like this project, give it a ⭐ on GitHub!
