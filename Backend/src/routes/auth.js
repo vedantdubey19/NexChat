@@ -4,8 +4,38 @@ const { v4: uuidv4 } = require('uuid');
 const { query } = require('../config/database');
 const { authenticate, generateAccessToken, generateRefreshToken, JWT_SECRET } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend');
 
 const router = express.Router();
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+const sendEmailOtp = async (email, username, otp) => {
+  if (!resend) {
+    console.warn('Resend client not initialized (RESEND_API_KEY missing)');
+    return;
+  }
+  try {
+    await resend.emails.send({
+      from: 'NexChat <onboarding@resend.dev>',
+      to: email,
+      subject: 'Verify your NexChat Account',
+      html: `
+        <div style="font-family: sans-serif; padding: 24px; max-width: 480px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #00a884; margin-top: 0;">Welcome to NexChat, ${username}!</h2>
+          <p style="color: #475569; font-size: 0.95rem; line-height: 1.5;">To complete your registration, please verify your email address using the one-time password below:</p>
+          <div style="background: #f1f5f9; padding: 16px; border-radius: 8px; text-align: center; font-size: 1.8rem; font-weight: 700; color: #0f172a; letter-spacing: 6px; margin: 24px 0;">
+            ${otp}
+          </div>
+          <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0;">This OTP code is valid for 10 minutes. If you did not request this code, you can safely ignore this email.</p>
+        </div>
+      `
+    });
+    console.log(`✉️ OTP email sent successfully to ${email}`);
+  } catch (err) {
+    console.error(`❌ Failed to send OTP email to ${email}:`, err);
+  }
+};
 
 /**
  * POST /api/auth/register
@@ -68,7 +98,10 @@ router.post('/register', async (req, res) => {
       );
       
       console.log(`🔑 Verification OTPs for user ${user.username}:`);
-      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (emailOtp) {
+        console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+        await sendEmailOtp(user.email, user.username, emailOtp);
+      }
       if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
     }
 
@@ -137,7 +170,10 @@ router.post('/login', async (req, res) => {
       );
 
       console.log(`🔑 Verification OTPs for unverified user logging in ${user.username}:`);
-      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (emailOtp) {
+        console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+        await sendEmailOtp(user.email, user.username, emailOtp);
+      }
       if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
 
       return res.json({
@@ -304,7 +340,10 @@ router.post('/resend-otp', async (req, res) => {
       );
 
       console.log(`🔑 Resent OTPs for user ${user.username}:`);
-      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (emailOtp) {
+        console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+        await sendEmailOtp(user.email, user.username, emailOtp);
+      }
       if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
     }
 
