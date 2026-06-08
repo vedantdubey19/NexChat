@@ -48,6 +48,132 @@ export default function ChatViewPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, msg: null });
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const longPressTimer = useRef(null);
+
+  const formatBytes = (bytes, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isImage = file.type.startsWith('image/');
+    setSelectedFile({
+      file,
+      name: file.name,
+      size: file.size,
+      isImage,
+      previewUrl: isImage ? URL.createObjectURL(file) : null
+    });
+  };
+
+  const clearSelectedFile = () => {
+    if (selectedFile?.previewUrl) {
+      URL.revokeObjectURL(selectedFile.previewUrl);
+    }
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const uploadAndSendFile = async () => {
+    if (!selectedFile) return;
+    try {
+      setUploadingFile(true);
+      setError('');
+      
+      const formData = new FormData();
+      formData.append('file', selectedFile.file);
+      
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/media/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      const media = await response.json();
+      
+      const socket = getSocket();
+      if (socket && socket.connected) {
+        socket.emit('message:send', {
+          chatId: id,
+          content: selectedFile.isImage ? media.url : selectedFile.name,
+          type: media.type,
+          metadata: {
+            url: media.url,
+            size: media.sizeBytes || media.size_bytes,
+            filename: media.filename,
+            mimeType: media.mimeType || media.mime_type
+          }
+        });
+      }
+      clearSelectedFile();
+    } catch (err) {
+      setError('Failed to upload file');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleContextMenu = (e, msg) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      msg
+    });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({ visible: false, x: 0, y: 0, msg: null });
+  };
+
+  const handleTouchStart = (e, msg) => {
+    longPressTimer.current = setTimeout(() => {
+      const touch = e.touches[0];
+      handleContextMenu({
+        preventDefault: () => {},
+        clientX: touch.clientX,
+        clientY: touch.clientY
+      }, msg);
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handleDeleteMessage = async (msgId) => {
+    try {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: null, is_deleted: true } : m));
+      const token = localStorage.getItem('accessToken');
+      await fetch(`${API_URL}/messages/${msgId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+    }
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
@@ -147,12 +273,26 @@ export default function ChatViewPage() {
       });
     };
 
+    const handleMessageEdit = ({ messageId, content, updatedAt }) => {
+      setMessages((prev) => prev.map(m => 
+        m.id === messageId ? { ...m, content, is_edited: true, updatedAt } : m
+      ));
+    };
+
+    const handleMessageDelete = ({ messageId }) => {
+      setMessages((prev) => prev.map(m => 
+        m.id === messageId ? { ...m, content: null, is_deleted: true } : m
+      ));
+    };
+
     socket.on('message:new', handleNewMessage);
     socket.on('message:status', handleMessageStatus);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);
     socket.on('user:online', handleUserOnline);
     socket.on('user:offline', handleUserOffline);
+    socket.on('message:edit', handleMessageEdit);
+    socket.on('message:delete', handleMessageDelete);
 
     return () => {
       socket.off('message:new', handleNewMessage);
@@ -161,6 +301,8 @@ export default function ChatViewPage() {
       socket.off('typing:stop', handleTypingStop);
       socket.off('user:online', handleUserOnline);
       socket.off('user:offline', handleUserOffline);
+      socket.off('message:edit', handleMessageEdit);
+      socket.off('message:delete', handleMessageDelete);
     };
   }, [id, user, loadChatData]);
 
@@ -188,8 +330,33 @@ export default function ChatViewPage() {
   };
 
   // Send message
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return;
+
+    if (editingMsgId) {
+      const msgId = editingMsgId;
+      const originalContent = input.trim();
+      
+      setEditingMsgId(null);
+      setInput('');
+      
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: originalContent, is_edited: true } : m));
+
+      try {
+        const token = localStorage.getItem('accessToken');
+        await fetch(`${API_URL}/messages/${msgId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ content: originalContent })
+        });
+      } catch (err) {
+        console.error('Failed to edit message:', err);
+      }
+      return;
+    }
 
     const socket = getSocket();
     if (!socket || !socket.connected) {
@@ -361,7 +528,10 @@ export default function ChatViewPage() {
                 return (
                   <div key={msg.id}
                     className={isMe ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
-                    style={{ maxWidth: isImage ? 280 : undefined }}
+                    style={{ maxWidth: isImage ? 280 : undefined, cursor: 'pointer' }}
+                    onContextMenu={(e) => handleContextMenu(e, msg)}
+                    onTouchStart={(e) => handleTouchStart(e, msg)}
+                    onTouchEnd={handleTouchEnd}
                   >
                     {!isMe && chat?.type === 'group' && (
                       <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', marginBottom: 2 }}>
@@ -369,65 +539,79 @@ export default function ChatViewPage() {
                       </div>
                     )}
 
-                    {/* Image bubble */}
-                    {isImage && (
-                      <a href={mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
-                        <img
-                          src={mediaUrl}
-                          alt="shared image"
-                          style={{
-                            width: '100%', maxWidth: 260, borderRadius: 8,
-                            display: 'block', objectFit: 'cover',
-                            opacity: msg.uploading ? 0.5 : 1,
-                            cursor: 'pointer',
-                          }}
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                        />
-                        {msg.uploading && (
-                          <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Uploading...</div>
-                        )}
-                      </a>
-                    )}
-
-                    {/* File bubble */}
-                    {isFile && (
-                      <a
-                        href={msg.uploading ? '#' : (msg.metadata?.url || '#')}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, minWidth: 180 }}
-                      >
-                        <div style={{
-                          width: 38, height: 38, borderRadius: 8, flexShrink: 0,
-                          background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-container)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'white' : 'var(--primary)'} strokeWidth="2">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                            <polyline points="14 2 14 8 20 8"/>
-                          </svg>
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isMe ? 'white' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                            {msg.content}
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>
-                            {msg.uploading ? 'Uploading...' : (msg.metadata?.size ? formatBytes(msg.metadata.size) : 'File')}
-                          </div>
-                        </div>
-                      </a>
-                    )}
-
-                    {/* Text bubble */}
-                    {!isImage && !isFile && (
-                      <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
-                        {msg.content}
+                    {msg.is_deleted || msg.isDeleted ? (
+                      <div style={{ fontStyle: 'italic', color: 'var(--on-surface-variant)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                        This message was deleted
                       </div>
+                    ) : (
+                      <>
+                        {/* Image bubble */}
+                        {isImage && (
+                          <a href={mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                            <img
+                              src={mediaUrl}
+                              alt="shared image"
+                              style={{
+                                width: '100%', maxWidth: 260, borderRadius: 8,
+                                display: 'block', objectFit: 'cover',
+                                opacity: msg.uploading ? 0.5 : 1,
+                                cursor: 'pointer',
+                              }}
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                            {msg.uploading && (
+                              <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Uploading...</div>
+                            )}
+                          </a>
+                        )}
+
+                        {/* File bubble */}
+                        {isFile && (
+                          <a
+                            href={msg.uploading ? '#' : (msg.metadata?.url || '#')}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, minWidth: 180 }}
+                          >
+                            <div style={{
+                              width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                              background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-container)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'white' : 'var(--primary)'} strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                              </svg>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isMe ? 'white' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                                {msg.content}
+                              </div>
+                              <div style={{ fontSize: '0.68rem', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>
+                                {msg.uploading ? 'Uploading...' : (msg.metadata?.size ? formatBytes(msg.metadata.size) : 'File')}
+                              </div>
+                            </div>
+                          </a>
+                        )}
+
+                        {/* Text bubble */}
+                        {!isImage && !isFile && (
+                          <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
+                            {msg.content}
+                            {(msg.is_edited || msg.isEdited) && (
+                              <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)', marginLeft: 6, fontStyle: 'italic' }}>
+                                (edited)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
 
                     <div className="bubble-time" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
                       <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
-                      {isMe && getTick(msg.status)}
+                      {isMe && !msg.is_deleted && !msg.isDeleted && getTick(msg.status)}
                     </div>
                   </div>
                 );
@@ -451,6 +635,40 @@ export default function ChatViewPage() {
           borderTop: '1px solid var(--outline-variant)',
           flexShrink: 0,
         }}>
+
+          {/* Editing Message Banner */}
+          {editingMsgId && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '8px 16px',
+              background: 'var(--surface-container-low)',
+              borderBottom: '1px solid var(--outline-variant)',
+            }}>
+              <div style={{
+                width: 4, height: 32, borderRadius: 2,
+                background: 'var(--primary)', flexShrink: 0
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>
+                  Edit Message
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {messages.find(m => m.id === editingMsgId)?.content}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingMsgId(null);
+                  setInput('');
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', padding: 4 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          )}
 
           {/* File preview bar — shown when a file is selected */}
           {selectedFile && (
@@ -588,6 +806,71 @@ export default function ChatViewPage() {
           </div>
         </div>
       </div>
+
+      {contextMenu.visible && contextMenu.msg && (
+        <>
+          <div 
+            onClick={closeContextMenu} 
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+          />
+          <div style={{
+            position: 'fixed',
+            top: Math.min(contextMenu.y, typeof window !== 'undefined' ? window.innerHeight - 100 : contextMenu.y),
+            left: Math.min(contextMenu.x, typeof window !== 'undefined' ? window.innerWidth - 150 : contextMenu.x),
+            background: 'var(--surface-container-high)',
+            border: '1px solid var(--outline-variant)',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.24)',
+            padding: '6px 0',
+            zIndex: 999,
+            minWidth: 130,
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            {/* Only allow editing own text messages */}
+            {contextMenu.msg.senderId === user?.id && contextMenu.msg.type === 'text' && !contextMenu.msg.is_deleted && !contextMenu.msg.isDeleted && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingMsgId(contextMenu.msg.id);
+                  setInput(contextMenu.msg.content);
+                  closeContextMenu();
+                }}
+                style={{
+                  background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                  fontSize: '0.85rem', color: 'var(--on-surface)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 10
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                Edit
+              </button>
+            )}
+            {/* Only allow deleting own messages */}
+            {contextMenu.msg.senderId === user?.id && !contextMenu.msg.is_deleted && !contextMenu.msg.isDeleted && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleDeleteMessage(contextMenu.msg.id);
+                  closeContextMenu();
+                }}
+                style={{
+                  background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                  fontSize: '0.85rem', color: 'var(--danger)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 10
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                Delete
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       <style jsx>{`
         .back-btn-responsive {

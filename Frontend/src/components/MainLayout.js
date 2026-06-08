@@ -38,6 +38,7 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
   const [globalUsers, setGlobalUsers] = useState([]);
   const [searchingGlobal, setSearchingGlobal] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  const [showNewGroupModal, setShowNewGroupModal] = useState(false);
 
   // Load and persist theme
   useEffect(() => {
@@ -289,6 +290,15 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
                 </svg>
               )}
             </button>
+            {/* New Group Button */}
+            <button className="btn-ghost" onClick={() => setShowNewGroupModal(true)} title="New Group" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </button>
             {/* Settings Button */}
             <button className="btn-ghost" onClick={() => router.push('/settings')} title="Settings" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -469,6 +479,18 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
       <main className="detail-pane">
         {children}
       </main>
+
+      {showNewGroupModal && (
+        <NewGroupModal
+          currentUser={user}
+          onClose={() => setShowNewGroupModal(false)}
+          onCreated={(chatId) => {
+            setShowNewGroupModal(false);
+            fetchChats();
+            router.push(`/chat/${chatId}`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -549,7 +571,7 @@ function SidebarChatRow({ chat, activeChatId, onClick }) {
               'No messages yet'
             )}
           </div>
-          {chat.unreadCount > 0 && (
+      {chat.unreadCount > 0 && (
             <span style={{
               background: '#00a884', color: 'white', borderRadius: '50%',
               fontSize: '0.7rem', fontWeight: 'bold', minWidth: 20, height: 20,
@@ -559,6 +581,215 @@ function SidebarChatRow({ chat, activeChatId, onClick }) {
             </span>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function NewGroupModal({ onClose, onCreated, currentUser }) {
+  const [groupName, setGroupName] = useState('');
+  const [description, setDescription] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [searchedUsers, setSearchedUsers] = useState([]);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (memberSearch.trim().length < 2) {
+      setSearchedUsers([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setLoadingSearch(true);
+        const data = await get(`/users/search?q=${encodeURIComponent(memberSearch)}`);
+        // Filter out current user and already selected users
+        const filtered = (data || []).filter(u => u.id !== currentUser?.id && !selectedUsers.some(su => su.id === u.id));
+        setSearchedUsers(filtered);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingSearch(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [memberSearch, currentUser, selectedUsers]);
+
+  const handleSelectUser = (user) => {
+    if (!selectedUsers.some(u => u.id === user.id)) {
+      setSelectedUsers([...selectedUsers, user]);
+    }
+    setMemberSearch('');
+    setSearchedUsers([]);
+  };
+
+  const handleRemoveUser = (userId) => {
+    setSelectedUsers(selectedUsers.filter(u => u.id !== userId));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!groupName.trim()) {
+      setError('Group name is required');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      setError('');
+      const memberIds = selectedUsers.map(u => u.id);
+      const res = await post('/groups', {
+        name: groupName,
+        description,
+        memberIds
+      });
+      onCreated(res.chatId);
+    } catch (err) {
+      setError(err.message || 'Failed to create group');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)'
+    }}>
+      <div style={{
+        background: 'var(--surface-container-high)', width: '90%', maxWidth: 460,
+        borderRadius: 16, border: '1px solid var(--outline-variant)', overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.24)', display: 'flex', flexDirection: 'column',
+        maxHeight: '90vh'
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '16px 20px', borderBottom: '1px solid var(--outline-variant)'
+        }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--on-surface)' }}>Create New Group</h3>
+          <button type="button" className="btn-ghost" onClick={onClose} style={{ color: 'var(--on-surface-variant)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: 20, gap: 16 }}>
+          {error && <div style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{error}</div>}
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Group Name *</label>
+            <input
+              type="text"
+              placeholder="e.g. Project Team"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              required
+              style={{
+                background: 'var(--surface-container-low)', border: '1px solid var(--outline-variant)',
+                borderRadius: 8, padding: '10px 12px', color: 'var(--on-surface)', outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Description</label>
+            <input
+              type="text"
+              placeholder="Optional group description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              style={{
+                background: 'var(--surface-container-low)', border: '1px solid var(--outline-variant)',
+                borderRadius: 8, padding: '10px 12px', color: 'var(--on-surface)', outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            />
+          </div>
+
+          {/* Add Members */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 180, overflow: 'hidden' }}>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Add Members</label>
+            
+            {/* Selected users chips */}
+            {selectedUsers.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, maxHeight: 80, overflowY: 'auto' }}>
+                {selectedUsers.map(u => (
+                  <div key={u.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, background: '#00a884',
+                    color: 'white', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem',
+                    fontWeight: 500
+                  }}>
+                    <span>{u.fullName}</span>
+                    <button type="button" onClick={() => handleRemoveUser(u.id)} style={{
+                      background: 'none', border: 'none', color: 'white', cursor: 'pointer',
+                      padding: 0, display: 'flex', alignItems: 'center'
+                    }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <input
+              type="text"
+              placeholder="Type contact name..."
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              style={{
+                background: 'var(--surface-container-low)', border: '1px solid var(--outline-variant)',
+                borderRadius: 8, padding: '10px 12px', color: 'var(--on-surface)', outline: 'none',
+                fontSize: '0.9rem'
+              }}
+            />
+
+            {/* Dropdown search results */}
+            <div className="scroll-y" style={{ flex: 1, border: '1px solid var(--outline-variant)', borderRadius: 8, marginTop: 4, background: 'var(--surface-container-low)' }}>
+              {loadingSearch ? (
+                <div style={{ padding: '12px', fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>Searching...</div>
+              ) : searchedUsers.length === 0 && memberSearch.trim().length >= 2 ? (
+                <div style={{ padding: '12px', fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>No users found</div>
+              ) : searchedUsers.length === 0 ? (
+                <div style={{ padding: '12px', fontSize: '0.8rem', color: 'var(--on-surface-variant)', fontStyle: 'italic' }}>Search for users to add them as members</div>
+              ) : (
+                searchedUsers.map(u => (
+                  <div
+                    key={u.id}
+                    onClick={() => handleSelectUser(u)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                      cursor: 'pointer', borderBottom: '1px solid var(--outline-variant)'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-high)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div className="avatar" style={{ background: getAvatarColor(u.fullName), width: 30, height: 30, fontSize: '0.75rem' }}>
+                      {getInitials(u.fullName)}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--on-surface)' }}>{u.fullName}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>@{u.username}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Footer Submit */}
+          <button type="submit" disabled={submitting} style={{
+            background: '#00a884', color: 'white', border: 'none', borderRadius: 8,
+            padding: '12px', fontSize: '0.9rem', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer',
+            transition: 'background 0.2s', width: '100%', display: 'flex', justifyContent: 'center',
+            alignItems: 'center', gap: 8
+          }}>
+            {submitting ? 'Creating...' : 'Create Group'}
+          </button>
+        </form>
       </div>
     </div>
   );

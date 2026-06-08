@@ -9,7 +9,8 @@ const PORT = process.env.PORT || 3001;
 const server = http.createServer(app);
 
 // Initialize Socket.IO
-initSocketServer(server);
+const io = initSocketServer(server);
+app.set('io', io);
 
 // Graceful shutdown
 const shutdown = async () => {

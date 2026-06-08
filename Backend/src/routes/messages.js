@@ -101,6 +101,45 @@ router.put('/:id/react', authenticate, async (req, res) => {
 });
 
 /**
+ * PUT /api/messages/:id
+ * Edit a message
+ */
+router.put('/:id', authenticate, async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const result = await query(
+      `UPDATE messages SET content = $1, is_edited = true, updated_at = NOW()
+       WHERE id = $2 AND sender_id = $3 AND is_deleted = false
+       RETURNING id, chat_id, content, updated_at`,
+      [content, req.params.id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Message not found or not authorized' });
+    }
+
+    const message = result.rows[0];
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`chat:${message.chat_id}`).emit('message:edit', {
+        messageId: message.id,
+        chatId: message.chat_id,
+        content: message.content,
+        updatedAt: message.updated_at
+      });
+    }
+
+    res.json({ success: true, message });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to edit message' });
+  }
+});
+
+/**
  * DELETE /api/messages/:id
  * Soft delete a message
  */
@@ -109,12 +148,21 @@ router.delete('/:id', authenticate, async (req, res) => {
     const result = await query(
       `UPDATE messages SET is_deleted = true, content = NULL, updated_at = NOW()
        WHERE id = $1 AND sender_id = $2
-       RETURNING id`,
+       RETURNING id, chat_id`,
       [req.params.id, req.userId]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Message not found or not authorized' });
+    }
+
+    const { chat_id } = result.rows[0];
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`chat:${chat_id}`).emit('message:delete', {
+        messageId: req.params.id,
+        chatId: chat_id
+      });
     }
 
     res.json({ success: true });
