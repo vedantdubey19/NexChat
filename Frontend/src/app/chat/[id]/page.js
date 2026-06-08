@@ -7,6 +7,8 @@ import { get } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import MainLayout from '@/components/MainLayout';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+
 
 const formatMessageTime = (dateStr) => {
   if (typeof window === 'undefined') return '';
@@ -34,9 +36,12 @@ export default function ChatViewPage() {
   const [amITyping, setAmITyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);   // { file, previewUrl, type }
+  const [uploadingFile, setUploadingFile] = useState(false);
   
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Scroll to bottom helper
   const scrollToBottom = () => {
@@ -223,9 +228,6 @@ export default function ChatViewPage() {
     }
   };
 
-
-
-
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -352,18 +354,77 @@ export default function ChatViewPage() {
 
               {messages.map(msg => {
                 const isMe = msg.senderId === user?.id;
+                const isImage = msg.type === 'image';
+                const isFile = msg.type === 'file';
+                const mediaUrl = msg.metadata?.url || msg.content;
+
                 return (
                   <div key={msg.id}
                     className={isMe ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
+                    style={{ maxWidth: isImage ? 280 : undefined }}
                   >
                     {!isMe && chat?.type === 'group' && (
                       <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', marginBottom: 2 }}>
                         {msg.sender?.fullName}
                       </div>
                     )}
-                    <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
-                      {msg.content}
-                    </div>
+
+                    {/* Image bubble */}
+                    {isImage && (
+                      <a href={mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                        <img
+                          src={mediaUrl}
+                          alt="shared image"
+                          style={{
+                            width: '100%', maxWidth: 260, borderRadius: 8,
+                            display: 'block', objectFit: 'cover',
+                            opacity: msg.uploading ? 0.5 : 1,
+                            cursor: 'pointer',
+                          }}
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                        {msg.uploading && (
+                          <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Uploading...</div>
+                        )}
+                      </a>
+                    )}
+
+                    {/* File bubble */}
+                    {isFile && (
+                      <a
+                        href={msg.uploading ? '#' : (msg.metadata?.url || '#')}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, minWidth: 180 }}
+                      >
+                        <div style={{
+                          width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                          background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-container)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'white' : 'var(--primary)'} strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isMe ? 'white' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                            {msg.content}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>
+                            {msg.uploading ? 'Uploading...' : (msg.metadata?.size ? formatBytes(msg.metadata.size) : 'File')}
+                          </div>
+                        </div>
+                      </a>
+                    )}
+
+                    {/* Text bubble */}
+                    {!isImage && !isFile && (
+                      <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
+                        {msg.content}
+                      </div>
+                    )}
+
                     <div className="bubble-time" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
                       <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
                       {isMe && getTick(msg.status)}
@@ -386,66 +447,145 @@ export default function ChatViewPage() {
 
         {/* Message Input bottom bar */}
         <div style={{
-          padding: '10px 16px',
           background: 'var(--surface-container-high)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
           borderTop: '1px solid var(--outline-variant)',
-          flexShrink: 0
+          flexShrink: 0,
         }}>
-          {/* Emoji */}
-          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-          </button>
-          
-          {/* Attachment clip */}
-          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          </button>
 
-          {/* Text Input area */}
-          <div style={{ flex: 1, display: 'flex' }}>
-            <input
-              id="message-input"
-              className="input-field"
-              placeholder="Type a message"
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              style={{
-                background: 'var(--surface-container-lowest)',
-                borderRadius: 8,
-                padding: '10px 16px',
-                height: 42,
-                fontSize: '0.9rem',
-                border: 'none',
-                color: 'var(--on-surface)',
-                outline: 'none',
-                width: '100%'
-              }}
-            />
-          </div>
-
-          {/* Send or Voice Trigger */}
-          {input.trim() ? (
-            <button
-              id="send-button"
-              onClick={sendMessage}
-              style={{
-                width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--primary)', color: 'white',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                border: 'none', cursor: 'pointer',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-            </button>
-          ) : (
-            <button className="btn btn-icon btn-ghost" style={{ width: 40, height: 40, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-            </button>
+          {/* File preview bar — shown when a file is selected */}
+          {selectedFile && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '8px 16px',
+              background: 'var(--surface-container-low)',
+              borderBottom: '1px solid var(--outline-variant)',
+            }}>
+              {selectedFile.isImage ? (
+                <img src={selectedFile.previewUrl} alt="preview"
+                  style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+                />
+              ) : (
+                <div style={{
+                  width: 52, height: 52, borderRadius: 8, flexShrink: 0,
+                  background: 'var(--surface-container)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {selectedFile.name}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
+                  {formatBytes(selectedFile.size)}
+                </div>
+              </div>
+              <button
+                onClick={clearSelectedFile}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--on-surface-variant)', padding: 4 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
           )}
+
+          {/* Input row */}
+          <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Emoji */}
+            <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+            </button>
+
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              id="file-attach-input"
+              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.mp3,.wav"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
+
+            {/* Attachment clip button */}
+            <button
+              id="attach-btn"
+              className="btn btn-icon btn-ghost"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach file"
+              style={{ width: 36, height: 36, flexShrink: 0, color: selectedFile ? 'var(--primary)' : 'var(--on-surface-variant)' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+
+            {/* Text input */}
+            <div style={{ flex: 1, display: 'flex' }}>
+              <input
+                id="message-input"
+                className="input-field"
+                placeholder="Type a message"
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                style={{
+                  background: 'var(--surface-container-lowest)',
+                  borderRadius: 8, padding: '10px 16px',
+                  height: 42, fontSize: '0.9rem',
+                  border: 'none', color: 'var(--on-surface)',
+                  outline: 'none', width: '100%'
+                }}
+              />
+            </div>
+
+            {/* Send / Upload / Mic button */}
+            {selectedFile ? (
+              <button
+                id="send-file-button"
+                onClick={uploadAndSendFile}
+                disabled={uploadingFile}
+                style={{
+                  width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                  background: uploadingFile ? 'var(--outline)' : 'var(--primary)',
+                  color: 'white', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', border: 'none',
+                  cursor: uploadingFile ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {uploadingFile ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                    <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+                    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                  </svg>
+                )}
+              </button>
+            ) : input.trim() ? (
+              <button
+                id="send-button"
+                onClick={sendMessage}
+                style={{
+                  width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                  background: 'var(--primary)', color: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
+            ) : (
+              <button className="btn btn-icon btn-ghost" style={{ width: 40, height: 40, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
