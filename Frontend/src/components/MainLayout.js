@@ -128,13 +128,19 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
     setRowMenu({ visible: false, x: 0, y: 0, chat: null });
   };
 
-  // Load and persist theme
+  // Load and persist theme, and request Notification permission
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('nexchat-theme') : null;
     const prefersDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const dark = saved ? saved === 'dark' : prefersDark;
     setIsDark(dark);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
   }, []);
 
   const toggleTheme = () => {
@@ -246,6 +252,17 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
               body: messageBody,
               chatId: msg.chatId
             });
+
+            // Trigger browser system notification if permitted
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              const notification = new Notification(targetChat.name || 'New Message', {
+                body: messageBody,
+              });
+              notification.onclick = () => {
+                window.focus();
+                router.push(`/chat/${msg.chatId}`);
+              };
+            }
           } else {
             targetChat.unreadCount = 0;
           }
