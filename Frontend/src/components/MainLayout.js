@@ -41,6 +41,7 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
   const [rowMenu, setRowMenu] = useState({ visible: false, x: 0, y: 0, chat: null });
   const [showArchivedSection, setShowArchivedSection] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const longPressTimer = useRef(null);
 
@@ -143,6 +144,15 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
     localStorage.setItem('nexchat-theme', next ? 'dark' : 'light');
   };
 
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   // Global search effect
   useEffect(() => {
     if (search.trim().length < 2) {
@@ -228,6 +238,14 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
           };
           if (msg.senderId !== user?.id && String(msg.chatId) !== String(activeChatId)) {
             targetChat.unreadCount = (targetChat.unreadCount || 0) + 1;
+            
+            // Trigger visual in-app notification toast
+            const messageBody = msg.type === 'text' ? msg.content : (msg.type === 'image' ? '📷 Image' : '📎 File');
+            setToast({
+              title: targetChat.name || 'New Message',
+              body: messageBody,
+              chatId: msg.chatId
+            });
           } else {
             targetChat.unreadCount = 0;
           }
@@ -624,6 +642,16 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
               display: flex !important;
             }
           }
+          @keyframes slideIn {
+            from {
+              transform: translateY(-20px);
+              opacity: 0;
+            }
+            to {
+              transform: translateY(0);
+              opacity: 1;
+            }
+          }
         `}</style>
       </aside>
 
@@ -731,6 +759,63 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
             </button>
           </div>
         </>
+      )}
+
+      {toast && (
+        <div 
+          onClick={() => {
+            router.push(`/chat/${toast.chatId}`);
+            setToast(null);
+          }}
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 20,
+            background: 'var(--surface-container-high)',
+            border: '1px solid var(--primary)',
+            borderRadius: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            padding: '12px 16px',
+            zIndex: 10000,
+            minWidth: 260,
+            maxWidth: 320,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            cursor: 'pointer',
+            backdropFilter: 'blur(8px)',
+            animation: 'slideIn 0.3s ease-out'
+          }}
+        >
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%',
+            background: 'var(--primary)', color: 'white',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '1rem', fontWeight: 600, flexShrink: 0
+          }}>
+            💬
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--on-surface)' }} className="truncate">
+              {toast.title}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', marginTop: 2 }} className="truncate">
+              {toast.body}
+            </div>
+          </div>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setToast(null);
+            }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--on-surface-variant)', padding: 4
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
       )}
     </div>
   );
