@@ -15,9 +15,50 @@ export function AuthProvider({ children }) {
   const [activeCall, setActiveCall] = useState(null);
   const [callTimer, setCallTimer] = useState(0);
   const [localStream, setLocalStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
 
   const timerIntervalRef = useRef(null);
   const localStreamRef = useRef(null);
+  const pcRef = useRef(null);
+  const pendingOfferRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
+
+  const stopPeerConnection = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    setRemoteStream(null);
+    pendingCandidatesRef.current = [];
+    pendingOfferRef.current = null;
+  }, []);
+
+  const createPeerConnection = useCallback((targetUserId) => {
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    };
+    const pc = new RTCPeerConnection(config);
+    pcRef.current = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('call:candidate', { to: targetUserId, candidate: event.candidate });
+        }
+      }
+    };
+
+    pc.ontrack = (event) => {
+      const [stream] = event.streams;
+      setRemoteStream(stream);
+    };
+
+    return pc;
+  }, []);
 
   // Timer handler for active connected calls
   useEffect(() => {
@@ -60,7 +101,8 @@ export function AuthProvider({ children }) {
       localStreamRef.current = null;
     }
     setLocalStream(null);
-  }, []);
+    stopPeerConnection();
+  }, [stopPeerConnection]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -68,8 +110,9 @@ export function AuthProvider({ children }) {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      stopPeerConnection();
     };
-  }, []);
+  }, [stopPeerConnection]);
 
   useEffect(() => {
     // Check for saved user on mount
@@ -130,14 +173,44 @@ export function AuthProvider({ children }) {
       stopMedia();
     };
 
+    const handleCallOffer = async ({ from, offer }) => {
+      pendingOfferRef.current = offer;
+    };
+
+    const handleCallAnswerSdp = async ({ from, answer }) => {
+      const pc = pcRef.current;
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        for (const candidate of pendingCandidatesRef.current) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+        pendingCandidatesRef.current = [];
+      }
+    };
+
+    const handleCallCandidate = async ({ from, candidate }) => {
+      const pc = pcRef.current;
+      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        pendingCandidatesRef.current.push(candidate);
+      }
+    };
+
     socket.on('call:incoming', handleCallIncoming);
     socket.on('call:answered', handleCallAnswered);
     socket.on('call:ended', handleCallEnded);
+    socket.on('call:offer', handleCallOffer);
+    socket.on('call:answer-sdp', handleCallAnswerSdp);
+    socket.on('call:candidate', handleCallCandidate);
 
     return () => {
       socket.off('call:incoming', handleCallIncoming);
       socket.off('call:answered', handleCallAnswered);
       socket.off('call:ended', handleCallEnded);
+      socket.off('call:offer', handleCallOffer);
+      socket.off('call:answer-sdp', handleCallAnswerSdp);
+      socket.off('call:candidate', handleCallCandidate);
     };
   }, [user, stopMedia]);
 
@@ -205,21 +278,22 @@ export function AuthProvider({ children }) {
   // Initiate Call
   const initiateCall = useCallback(async (calleeId, calleeName, type = 'voice') => {
     try {
-      // Get browser microphone/camera access first
-      await startMedia(type);
+      const stream = await startMedia(type);
 
       const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const isMock = !UUID_REGEX.test(calleeId);
 
-      if (!isMock) {
-        // Register in DB
+      const socket = getSocket();
+      if (!isMock && socket && socket.connected) {
         await post('/calls/initiate', { calleeId, type });
+        socket.emit('call:initiate', { calleeId, type });
 
-        // Signal callee via socket
-        const socket = getSocket();
-        if (socket && socket.connected) {
-          socket.emit('call:initiate', { calleeId, type });
-        }
+        // WebRTC peer connection creation & offer
+        const pc = createPeerConnection(calleeId);
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('call:offer', { to: calleeId, offer });
       }
 
       setActiveCall({
@@ -228,7 +302,6 @@ export function AuthProvider({ children }) {
         status: 'ringing',
       });
 
-      // Simulate mock callee answering call after 3 seconds
       if (isMock) {
         setTimeout(() => {
           setActiveCall((prev) => {
@@ -244,18 +317,35 @@ export function AuthProvider({ children }) {
       stopMedia();
       alert(err.message || 'Failed to initiate call');
     }
-  }, [stopMedia]);
+  }, [stopMedia, createPeerConnection]);
 
   // Accept incoming call
   const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
 
     try {
-      // Request media permission
-      await startMedia(incomingCall.type);
+      const stream = await startMedia(incomingCall.type);
+
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const isMock = !UUID_REGEX.test(incomingCall.callerId);
 
       const socket = getSocket();
-      if (socket && socket.connected) {
+      if (!isMock && socket && socket.connected) {
+        const pc = createPeerConnection(incomingCall.callerId);
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+        if (pendingOfferRef.current) {
+          await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('call:answer-sdp', { to: incomingCall.callerId, answer });
+          
+          for (const candidate of pendingCandidatesRef.current) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+          pendingCandidatesRef.current = [];
+        }
+
         socket.emit('call:answer', { callerId: incomingCall.callerId });
       }
 
@@ -270,7 +360,7 @@ export function AuthProvider({ children }) {
       setIncomingCall(null);
       alert(err.message || 'Failed to answer call');
     }
-  }, [incomingCall]);
+  }, [incomingCall, startMedia, createPeerConnection]);
 
   // Decline incoming call
   const declineCall = useCallback(() => {
@@ -320,6 +410,7 @@ export function AuthProvider({ children }) {
           declineCall={declineCall}
           endCall={endCall}
           localStream={localStream}
+          remoteStream={remoteStream}
         />
       )}
     </AuthContext.Provider>
@@ -333,7 +424,7 @@ export const useAuth = () => {
 };
 
 // Calling Visual Component
-function CallingOverlay({ incomingCall, activeCall, callTimer, acceptCall, declineCall, endCall, localStream }) {
+function CallingOverlay({ incomingCall, activeCall, callTimer, acceptCall, declineCall, endCall, localStream, remoteStream }) {
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -442,7 +533,9 @@ function CallingOverlay({ incomingCall, activeCall, callTimer, acceptCall, decli
             boxShadow: activeCall.status === 'connected' ? '0 0 40px rgba(16, 185, 129, 0.3)' : '0 0 40px rgba(37, 99, 235, 0.3)',
             overflow: 'hidden',
           }}>
-            {activeCall.type === 'video' && localStream && activeCall.status === 'ringing' ? (
+            {activeCall.type === 'video' && remoteStream && activeCall.status === 'connected' ? (
+              <LocalVideoPreview stream={remoteStream} />
+            ) : activeCall.type === 'video' && localStream && activeCall.status === 'ringing' ? (
               <LocalVideoPreview stream={localStream} />
             ) : (
               getInitials(activeCall.otherUser.fullName)

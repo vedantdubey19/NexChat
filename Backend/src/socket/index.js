@@ -183,6 +183,33 @@ const initSocketServer = (httpServer) => {
       }
     });
 
+    socket.on('call:offer', ({ to, offer }) => {
+      const targetSockets = onlineUsers.get(to);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('call:offer', { from: userId, offer });
+        }
+      }
+    });
+
+    socket.on('call:answer-sdp', ({ to, answer }) => {
+      const targetSockets = onlineUsers.get(to);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('call:answer-sdp', { from: userId, answer });
+        }
+      }
+    });
+
+    socket.on('call:candidate', ({ to, candidate }) => {
+      const targetSockets = onlineUsers.get(to);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('call:candidate', { from: userId, candidate });
+        }
+      }
+    });
+
     socket.on('call:end', ({ otherUserId }) => {
       const otherSockets = onlineUsers.get(otherUserId);
       if (otherSockets) {

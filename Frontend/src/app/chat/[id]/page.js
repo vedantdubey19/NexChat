@@ -34,6 +34,9 @@ export default function ChatViewPage() {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [amITyping, setAmITyping] = useState(false);
+  const [showGroupSidebar, setShowGroupSidebar] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);   // { file, previewUrl, type }
@@ -414,7 +417,9 @@ export default function ChatViewPage() {
 
   return (
     <MainLayout activeTab="chats" activeChatId={id}>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+      <div style={{ display: 'flex', height: '100%', width: '100%', overflow: 'hidden' }}>
+        {/* Main Conversation Container */}
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', minWidth: 0 }}>
         {/* Chat Header */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12,
@@ -439,7 +444,10 @@ export default function ChatViewPage() {
           </div>
 
           {/* User Name & Status */}
-          <div style={{ flex: 1, minWidth: 0, paddingLeft: 4 }}>
+          <div 
+            onClick={() => chat?.type === 'group' && setShowGroupSidebar(true)}
+            style={{ flex: 1, minWidth: 0, paddingLeft: 4, cursor: chat?.type === 'group' ? 'pointer' : 'default' }}
+          >
             <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--on-surface)' }} className="truncate">
               {chat?.name || 'Loading Chat...'}
             </div>
@@ -447,7 +455,7 @@ export default function ChatViewPage() {
               {isTyping ? (
                 <span style={{ color: '#00a884', fontWeight: 500 }}>typing...</span>
               ) : chat?.type === 'group' ? (
-                `${chat?.memberCount || 2} members`
+                `${chat?.memberCount || 2} members (click to view)`
               ) : chat?.otherUser?.isOnline ? (
                 <span style={{ color: '#00a884', fontWeight: 500 }}>Online</span>
               ) : (
@@ -480,11 +488,46 @@ export default function ChatViewPage() {
                 </button>
               </>
             )}
+            <button 
+              onClick={() => {
+                setShowSearch(prev => !prev);
+                setSearchQuery('');
+              }} 
+              className="btn btn-icon btn-ghost" 
+              title="Search Messages" 
+              style={{ width: 36, height: 36, color: showSearch ? 'var(--primary)' : 'var(--on-surface-variant)' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </button>
             <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, color: 'var(--on-surface-variant)' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
             </button>
           </div>
         </div>
+
+        {showSearch && (
+          <div style={{
+            padding: '8px 16px', background: 'var(--surface-container-low)',
+            borderBottom: '1px solid var(--outline-variant)', display: 'flex', gap: 12, alignItems: 'center',
+            flexShrink: 0
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--on-surface-variant)" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input
+              type="text"
+              placeholder="Search messages..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ flex: 1, fontSize: '0.85rem', color: 'var(--on-surface)', outline: 'none', border: 'none', background: 'transparent' }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="btn btn-icon btn-ghost" style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Message Log viewport */}
         <div className="chat-bg scroll-y" style={{
@@ -519,103 +562,118 @@ export default function ChatViewPage() {
                 Conversation Started
               </div>
 
-              {messages.map(msg => {
-                const isMe = msg.senderId === user?.id;
-                const isImage = msg.type === 'image';
-                const isFile = msg.type === 'file';
-                const mediaUrl = msg.metadata?.url || msg.content;
+              {(() => {
+                const filtered = messages.filter(msg => {
+                  if (!searchQuery.trim()) return true;
+                  return msg.content && msg.content.toLowerCase().includes(searchQuery.toLowerCase());
+                });
 
-                return (
-                  <div key={msg.id}
-                    className={isMe ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
-                    style={{ maxWidth: isImage ? 280 : undefined, cursor: 'pointer' }}
-                    onContextMenu={(e) => handleContextMenu(e, msg)}
-                    onTouchStart={(e) => handleTouchStart(e, msg)}
-                    onTouchEnd={handleTouchEnd}
-                  >
-                    {!isMe && chat?.type === 'group' && (
-                      <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', marginBottom: 2 }}>
-                        {msg.sender?.fullName}
-                      </div>
-                    )}
-
-                    {msg.is_deleted || msg.isDeleted ? (
-                      <div style={{ fontStyle: 'italic', color: 'var(--on-surface-variant)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                        This message was deleted
-                      </div>
-                    ) : (
-                      <>
-                        {/* Image bubble */}
-                        {isImage && (
-                          <a href={mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
-                            <img
-                              src={mediaUrl}
-                              alt="shared image"
-                              style={{
-                                width: '100%', maxWidth: 260, borderRadius: 8,
-                                display: 'block', objectFit: 'cover',
-                                opacity: msg.uploading ? 0.5 : 1,
-                                cursor: 'pointer',
-                              }}
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                            {msg.uploading && (
-                              <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Uploading...</div>
-                            )}
-                          </a>
-                        )}
-
-                        {/* File bubble */}
-                        {isFile && (
-                          <a
-                            href={msg.uploading ? '#' : (msg.metadata?.url || '#')}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, minWidth: 180 }}
-                          >
-                            <div style={{
-                              width: 38, height: 38, borderRadius: 8, flexShrink: 0,
-                              background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-container)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}>
-                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'white' : 'var(--primary)'} strokeWidth="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                              </svg>
-                            </div>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isMe ? 'white' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
-                                {msg.content}
-                              </div>
-                              <div style={{ fontSize: '0.68rem', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>
-                                {msg.uploading ? 'Uploading...' : (msg.metadata?.size ? formatBytes(msg.metadata.size) : 'File')}
-                              </div>
-                            </div>
-                          </a>
-                        )}
-
-                        {/* Text bubble */}
-                        {!isImage && !isFile && (
-                          <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
-                            {msg.content}
-                            {(msg.is_edited || msg.isEdited) && (
-                              <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)', marginLeft: 6, fontStyle: 'italic' }}>
-                                (edited)
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    <div className="bubble-time" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-                      <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
-                      {isMe && !msg.is_deleted && !msg.isDeleted && getTick(msg.status)}
+                if (filtered.length === 0 && searchQuery.trim()) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '16px', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
+                      No messages match &quot;{searchQuery}&quot;
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                }
+
+                return filtered.map(msg => {
+                  const isMe = msg.senderId === user?.id;
+                  const isImage = msg.type === 'image';
+                  const isFile = msg.type === 'file';
+                  const mediaUrl = msg.metadata?.url || msg.content;
+
+                  return (
+                    <div key={msg.id}
+                      className={isMe ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
+                      style={{ maxWidth: isImage ? 280 : undefined, cursor: 'pointer' }}
+                      onContextMenu={(e) => handleContextMenu(e, msg)}
+                      onTouchStart={(e) => handleTouchStart(e, msg)}
+                      onTouchEnd={handleTouchEnd}
+                    >
+                      {!isMe && chat?.type === 'group' && (
+                        <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', marginBottom: 2 }}>
+                          {msg.sender?.fullName}
+                        </div>
+                      )}
+
+                      {msg.is_deleted || msg.isDeleted ? (
+                        <div style={{ fontStyle: 'italic', color: 'var(--on-surface-variant)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                          This message was deleted
+                        </div>
+                      ) : (
+                        <>
+                          {/* Image bubble */}
+                          {isImage && (
+                            <a href={mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                              <img
+                                src={mediaUrl}
+                                alt="shared image"
+                                style={{
+                                  width: '100%', maxWidth: 260, borderRadius: 8,
+                                  display: 'block', objectFit: 'cover',
+                                  opacity: msg.uploading ? 0.5 : 1,
+                                  cursor: 'pointer',
+                                }}
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                              {msg.uploading && (
+                                <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Uploading...</div>
+                              )}
+                            </a>
+                          )}
+
+                          {/* File bubble */}
+                          {isFile && (
+                            <a
+                              href={msg.uploading ? '#' : (msg.metadata?.url || '#')}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, minWidth: 180 }}
+                            >
+                              <div style={{
+                                width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                                background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--surface-container)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'white' : 'var(--primary)'} strokeWidth="2">
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                  <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: isMe ? 'white' : 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                                  {msg.content}
+                                </div>
+                                <div style={{ fontSize: '0.68rem', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--on-surface-variant)' }}>
+                                  {msg.uploading ? 'Uploading...' : (msg.metadata?.size ? formatBytes(msg.metadata.size) : 'File')}
+                                </div>
+                              </div>
+                            </a>
+                          )}
+
+                          {/* Text bubble */}
+                          {!isImage && !isFile && (
+                            <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
+                              {msg.content}
+                              {(msg.is_edited || msg.isEdited) && (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--on-surface-variant)', marginLeft: 6, fontStyle: 'italic' }}>
+                                  (edited)
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      <div className="bubble-time" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                        <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
+                        {isMe && !msg.is_deleted && !msg.isDeleted && getTick(msg.status)}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </>
           )}
 
@@ -807,6 +865,20 @@ export default function ChatViewPage() {
         </div>
       </div>
 
+      {showGroupSidebar && chat?.type === 'group' && (
+        <GroupDetailsSidebar
+          chatId={id}
+          chat={chat}
+          currentUser={user}
+          onClose={() => setShowGroupSidebar(false)}
+          onLeftGroup={() => {
+            setShowGroupSidebar(false);
+            router.push('/chat');
+          }}
+        />
+      )}
+    </div>
+
       {contextMenu.visible && contextMenu.msg && (
         <>
           <div 
@@ -883,5 +955,261 @@ export default function ChatViewPage() {
         }
       `}</style>
     </MainLayout>
+  );
+}
+
+function GroupDetailsSidebar({ chatId, chat, currentUser, onClose, onLeftGroup }) {
+  const [group, setGroup] = useState(null);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [searchedUsers, setSearchedUsers] = useState([]);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadGroupDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await get(`/groups/${chatId}`);
+      setGroup(data);
+    } catch (err) {
+      setError('Failed to load group details');
+    } finally {
+      setLoading(false);
+    }
+  }, [chatId]);
+
+  useEffect(() => {
+    loadGroupDetails();
+  }, [loadGroupDetails]);
+
+  // Search contacts to add
+  useEffect(() => {
+    if (memberSearch.trim().length < 2) {
+      setSearchedUsers([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setLoadingSearch(true);
+        const data = await get(`/users/search?q=${encodeURIComponent(memberSearch)}`);
+        const currentMemberIds = new Set(group?.members?.map(m => m.id) || []);
+        const filtered = (data || []).filter(u => !currentMemberIds.has(u.id));
+        setSearchedUsers(filtered);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingSearch(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [memberSearch, group]);
+
+  const handleAddMember = async (userId) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/groups/${chatId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userIds: [userId] })
+      });
+      if (!response.ok) throw new Error('Failed to add member');
+      setMemberSearch('');
+      setSearchedUsers([]);
+      loadGroupDetails();
+    } catch (err) {
+      alert('Failed to add member');
+    }
+  };
+
+  const handleRemoveMember = async (userId) => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/groups/${chatId}/members/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to remove member');
+      loadGroupDetails();
+    } catch (err) {
+      alert('Failed to remove member');
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!confirm('Are you sure you want to leave this group?')) return;
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_URL}/groups/${chatId}/members/${currentUser.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to leave group');
+      onLeftGroup();
+    } catch (err) {
+      alert('Failed to leave group');
+    }
+  };
+
+  const getInitials = (name) => name?.split(' ').map(w => w[0]).join('').toUpperCase() || '?';
+  const getAvatarColor = (name) => {
+    const colors = ['#2563EB', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    let hash = 0;
+    for (let i = 0; i < (name?.length || 0); i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const isAdmin = group?.members?.some(m => m.id === currentUser.id && m.role === 'admin');
+
+  return (
+    <aside style={{
+      width: 320, borderLeft: '1px solid var(--outline-variant)',
+      background: 'var(--surface-container-high)', display: 'flex',
+      flexDirection: 'column', height: '100%', flexShrink: 0
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px',
+        borderBottom: '1px solid var(--outline-variant)', height: 60, flexShrink: 0
+      }}>
+        <button className="btn btn-icon btn-ghost" onClick={onClose} style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <span style={{ fontWeight: 600, color: 'var(--on-surface)', fontSize: '0.95rem' }}>Group Info</span>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--on-surface-variant)' }}>Loading info...</div>
+      ) : error ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--danger)' }}>{error}</div>
+      ) : (
+        <div className="scroll-y" style={{ flex: 1, padding: 20, display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Profile Card */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10 }}>
+            <div className="avatar" style={{
+              width: 80, height: 80, fontSize: '2rem',
+              background: group.avatarUrl ? 'transparent' : getAvatarColor(group.name)
+            }}>
+              {group.avatarUrl ? <img src={group.avatarUrl} alt={group.name} style={{ borderRadius: '50%', width: '100%', height: '100%', objectFit: 'cover' }} /> : getInitials(group.name)}
+            </div>
+            <div>
+              <h3 style={{ margin: 0, color: 'var(--on-surface)', fontWeight: 600, fontSize: '1.1rem' }}>{group.name}</h3>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--on-surface-variant)', marginTop: 4 }}>Created on {new Date(group.createdAt).toLocaleDateString()}</p>
+            </div>
+          </div>
+
+          {/* Description */}
+          {group.description && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Description</span>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--on-surface)', lineHeight: 1.4 }}>{group.description}</p>
+            </div>
+          )}
+
+          {/* Add member search for admin */}
+          {isAdmin && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Add Member</span>
+              <input
+                type="text"
+                placeholder="Search contact name..."
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                style={{
+                  background: 'var(--surface-container-low)', border: '1px solid var(--outline-variant)',
+                  borderRadius: 8, padding: '8px 12px', color: 'var(--on-surface)', outline: 'none',
+                  fontSize: '0.85rem', width: '100%'
+                }}
+              />
+              {memberSearch.trim().length >= 2 && (
+                <div style={{
+                  border: '1px solid var(--outline-variant)', borderRadius: 8,
+                  background: 'var(--surface-container-low)', maxHeight: 150, overflowY: 'auto'
+                }}>
+                  {loadingSearch ? (
+                    <div style={{ padding: 8, fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>Searching...</div>
+                  ) : searchedUsers.length === 0 ? (
+                    <div style={{ padding: 8, fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>No users found</div>
+                  ) : (
+                    searchedUsers.map(u => (
+                      <div
+                        key={u.id}
+                        onClick={() => handleAddMember(u.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+                          cursor: 'pointer', borderBottom: '1px solid var(--outline-variant)'
+                        }}
+                      >
+                        <div className="avatar" style={{ background: getAvatarColor(u.fullName), width: 24, height: 24, fontSize: '0.65rem' }}>
+                          {getInitials(u.fullName)}
+                        </div>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--on-surface)' }}>{u.fullName}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Members List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>{group.members?.length || 0} Members</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {group.members?.map(m => (
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="avatar" style={{ background: getAvatarColor(m.fullName), width: 32, height: 32, fontSize: '0.78rem' }}>
+                      {getInitials(m.fullName)}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--on-surface)' }}>{m.fullName}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--on-surface-variant)' }}>@{m.username}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {m.role === 'admin' && (
+                      <span style={{
+                        fontSize: '0.65rem', border: '1px solid #00a884', color: '#00a884',
+                        padding: '2px 6px', borderRadius: 4, fontWeight: 600
+                      }}>Admin</span>
+                    )}
+                    {isAdmin && m.id !== currentUser.id && (
+                      <button
+                        onClick={() => handleRemoveMember(m.id)}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--danger)',
+                          fontSize: '0.75rem', cursor: 'pointer', padding: 4, textDecoration: 'underline'
+                        }}
+                      >Remove</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Leave Group Action */}
+          <button
+            onClick={handleLeaveGroup}
+            style={{
+              background: 'none', border: '1px solid var(--danger)', color: 'var(--danger)',
+              padding: '10px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600,
+              cursor: 'pointer', marginTop: 'auto', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: 8
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Leave Group
+          </button>
+        </div>
+      )}
+    </aside>
   );
 }

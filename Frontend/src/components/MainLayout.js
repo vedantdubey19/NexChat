@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { get, post } from '@/lib/api';
+import { get, post, put, del } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 
 
@@ -39,6 +39,93 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
   const [searchingGlobal, setSearchingGlobal] = useState(false);
   const [isDark, setIsDark] = useState(false);
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
+  const [rowMenu, setRowMenu] = useState({ visible: false, x: 0, y: 0, chat: null });
+  const [showArchivedSection, setShowArchivedSection] = useState(false);
+
+  const longPressTimer = useRef(null);
+
+  const handleRowContextMenu = (e, chat) => {
+    e.preventDefault();
+    setRowMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      chat
+    });
+  };
+
+  const handleRowTouchStart = (e, chat) => {
+    longPressTimer.current = setTimeout(() => {
+      const touch = e.touches[0];
+      setRowMenu({
+        visible: true,
+        x: touch.clientX,
+        y: touch.clientY,
+        chat
+      });
+    }, 500);
+  };
+
+  const handleRowTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handlePinChat = async (chat) => {
+    try {
+      await put(`/chats/${chat.id}/pin`, { isPinned: !chat.isPinned });
+      await fetchChats();
+    } catch (err) {
+      console.error('Failed to pin chat:', err);
+    } finally {
+      closeRowMenu();
+    }
+  };
+
+  const handleMuteChat = async (chat) => {
+    try {
+      await put(`/chats/${chat.id}/mute`, { isMuted: !chat.isMuted });
+      await fetchChats();
+    } catch (err) {
+      console.error('Failed to mute chat:', err);
+    } finally {
+      closeRowMenu();
+    }
+  };
+
+  const handleArchiveChat = async (chat) => {
+    try {
+      await put(`/chats/${chat.id}/archive`, { isArchived: !chat.isArchived });
+      if (String(activeChatId) === String(chat.id)) {
+        router.push('/chat');
+      }
+      await fetchChats();
+    } catch (err) {
+      console.error('Failed to archive chat:', err);
+    } finally {
+      closeRowMenu();
+    }
+  };
+
+  const handleDeleteChat = async (chat) => {
+    if (!confirm(`Are you sure you want to delete the chat with ${chat.name}?`)) return;
+    try {
+      await del(`/chats/${chat.id}`);
+      if (String(activeChatId) === String(chat.id)) {
+        router.push('/chat');
+      }
+      await fetchChats();
+    } catch (err) {
+      console.error('Failed to delete chat:', err);
+    } finally {
+      closeRowMenu();
+    }
+  };
+
+  const closeRowMenu = () => {
+    setRowMenu({ visible: false, x: 0, y: 0, chat: null });
+  };
 
   // Load and persist theme
   useEffect(() => {
@@ -219,7 +306,14 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
     router.push('/auth/login');
   };
 
-  const filteredChats = chats.filter(c =>
+  const activeChats = chats.filter(c => !c.isArchived);
+  const archivedChats = chats.filter(c => c.isArchived);
+
+  const filteredChats = activeChats.filter(c =>
+    (c.name || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredArchivedChats = archivedChats.filter(c =>
     (c.name || '').toLowerCase().includes(search.toLowerCase())
   );
 
@@ -336,12 +430,62 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
             <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>Loading conversations...</div>
           ) : (
             <>
+              {/* Archived Chats section header */}
+              {archivedChats.length > 0 && (
+                <div>
+                  <div 
+                    onClick={() => setShowArchivedSection(!showArchivedSection)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                      cursor: 'pointer', borderBottom: '1px solid var(--outline-variant)',
+                      background: 'var(--surface-container-low)', color: 'var(--primary)',
+                      fontWeight: 600, fontSize: '0.85rem'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-high)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                      <polyline points="21 8 21 21 3 21 3 8"/>
+                      <rect x="1" y="3" width="22" height="5" rx="1"/>
+                      <line x1="10" y1="12" x2="14" y2="12"/>
+                    </svg>
+                    <span>Archived ({archivedChats.length})</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', transform: showArchivedSection ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </span>
+                  </div>
+                  {showArchivedSection && (
+                    <div style={{ background: 'var(--surface-container-lowest)' }}>
+                      {filteredArchivedChats.map(c => (
+                        <SidebarChatRow 
+                          key={c.id} 
+                          chat={c} 
+                          activeChatId={activeChatId} 
+                          onClick={() => router.push(`/chat/${c.id}`)}
+                          onContextMenu={(e) => handleRowContextMenu(e, c)}
+                          onTouchStart={(e) => handleRowTouchStart(e, c)}
+                          onTouchEnd={handleRowTouchEnd}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Pinned */}
               {pinnedChats.length > 0 && (
                 <div>
                   <span className="text-label" style={{ color: 'var(--primary)', fontSize: '0.65rem', display: 'block', padding: '10px 16px 4px 16px', fontWeight: 600 }}>PINNED</span>
                   {pinnedChats.map(c => (
-                    <SidebarChatRow key={c.id} chat={c} activeChatId={activeChatId} onClick={() => router.push(`/chat/${c.id}`)} />
+                    <SidebarChatRow 
+                      key={c.id} 
+                      chat={c} 
+                      activeChatId={activeChatId} 
+                      onClick={() => router.push(`/chat/${c.id}`)}
+                      onContextMenu={(e) => handleRowContextMenu(e, c)}
+                      onTouchStart={(e) => handleRowTouchStart(e, c)}
+                      onTouchEnd={handleRowTouchEnd}
+                    />
                   ))}
                 </div>
               )}
@@ -353,7 +497,15 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
                     <span className="text-label" style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem', display: 'block', padding: '10px 16px 4px 16px', fontWeight: 600 }}>ALL CHATS</span>
                   )}
                   {regularChats.map(c => (
-                    <SidebarChatRow key={c.id} chat={c} activeChatId={activeChatId} onClick={() => router.push(`/chat/${c.id}`)} />
+                    <SidebarChatRow 
+                      key={c.id} 
+                      chat={c} 
+                      activeChatId={activeChatId} 
+                      onClick={() => router.push(`/chat/${c.id}`)}
+                      onContextMenu={(e) => handleRowContextMenu(e, c)}
+                      onTouchStart={(e) => handleRowTouchStart(e, c)}
+                      onTouchEnd={handleRowTouchEnd}
+                    />
                   ))}
                 </div>
               )}
@@ -491,11 +643,100 @@ export default function MainLayout({ children, activeTab = 'chats', activeChatId
           }}
         />
       )}
+
+      {rowMenu.visible && rowMenu.chat && (
+        <>
+          <div 
+            onClick={closeRowMenu} 
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+          />
+          <div style={{
+            position: 'fixed',
+            top: Math.min(rowMenu.y, typeof window !== 'undefined' ? window.innerHeight - 180 : rowMenu.y),
+            left: Math.min(rowMenu.x, typeof window !== 'undefined' ? window.innerWidth - 180 : rowMenu.x),
+            background: 'var(--surface-container-high)',
+            border: '1px solid var(--outline-variant)',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.24)',
+            padding: '6px 0',
+            zIndex: 999,
+            minWidth: 150,
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <button
+              type="button"
+              onClick={() => handlePinChat(rowMenu.chat)}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                fontSize: '0.85rem', color: 'var(--on-surface)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 10
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.45-3.07A2 2 0 0 1 15.68 9.7V5a4 4 0 0 0-8 0v4.7a2 2 0 0 1-.43 1.23L4.44 14a2 2 0 0 0-.44 1.24V17z"/></svg>
+              {rowMenu.chat.isPinned ? 'Unpin' : 'Pin'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleMuteChat(rowMenu.chat)}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                fontSize: '0.85rem', color: 'var(--on-surface)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 10
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              {rowMenu.chat.isMuted ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18.66 13c0-1.8-1.06-3.3-2.66-4.01V4.5a3.5 3.5 0 0 0-7 0v2.66L18.66 13z"/><path d="M13 22h-2a2 2 0 0 1-2-2h6a2 2 0 0 1-2 2z"/><path d="M2.27 2.27l19.46 19.46"/></svg>
+                  Unmute
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                  Mute
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleArchiveChat(rowMenu.chat)}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                fontSize: '0.85rem', color: 'var(--on-surface)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 10
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+              {rowMenu.chat.isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteChat(rowMenu.chat)}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', textAlign: 'left',
+                fontSize: '0.85rem', color: 'var(--danger)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 10
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-container-low)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              Delete Chat
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function SidebarChatRow({ chat, activeChatId, onClick }) {
+function SidebarChatRow({ chat, activeChatId, onClick, onContextMenu, onTouchStart, onTouchEnd }) {
   const isActive = String(chat.id) === String(activeChatId);
   const initials = getInitials(chat.name);
   const avatarBg = chat.avatarUrl ? 'transparent' : getAvatarColor(chat.name);
@@ -511,11 +752,16 @@ function SidebarChatRow({ chat, activeChatId, onClick }) {
   };
 
   return (
-    <div onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-      cursor: 'pointer', background: isActive ? 'var(--surface-container-high)' : 'transparent',
-      borderBottom: '1px solid var(--outline-variant)', transition: 'background 0.1s ease',
-    }}
+    <div 
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+        cursor: 'pointer', background: isActive ? 'var(--surface-container-high)' : 'transparent',
+        borderBottom: '1px solid var(--outline-variant)', transition: 'background 0.1s ease',
+      }}
       onMouseEnter={(e) => {
         if (!isActive) e.currentTarget.style.background = 'var(--surface-container-low)';
       }}
@@ -547,11 +793,19 @@ function SidebarChatRow({ chat, activeChatId, onClick }) {
           <div style={{ fontWeight: 500, fontSize: '0.95rem', color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {chat.name}
           </div>
-          {chat.lastMessage && (
-            <span style={{ fontSize: '0.7rem', color: chat.unreadCount > 0 ? 'var(--accent)' : 'var(--on-surface-variant)' }}>
-              {formatTime(chat.lastMessage.createdAt)}
-            </span>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {chat.isMuted && (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--on-surface-variant)" strokeWidth="2.5" style={{ opacity: 0.6 }}><path d="M18.66 13c0-1.8-1.06-3.3-2.66-4.01V4.5a3.5 3.5 0 0 0-7 0v2.66L18.66 13z"/><path d="M13 22h-2a2 2 0 0 1-2-2h6a2 2 0 0 1-2 2z"/><path d="M2.27 2.27l19.46 19.46"/></svg>
+            )}
+            {chat.isPinned && (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-.44-1.24l-2.45-3.07A2 2 0 0 1 15.68 9.7V5a4 4 0 0 0-8 0v4.7a2 2 0 0 1-.43 1.23L4.44 14a2 2 0 0 0-.44 1.24V17z"/></svg>
+            )}
+            {chat.lastMessage && (
+              <span style={{ fontSize: '0.7rem', color: chat.unreadCount > 0 ? 'var(--accent)' : 'var(--on-surface-variant)' }}>
+                {formatTime(chat.lastMessage.createdAt)}
+              </span>
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{
@@ -571,7 +825,7 @@ function SidebarChatRow({ chat, activeChatId, onClick }) {
               'No messages yet'
             )}
           </div>
-      {chat.unreadCount > 0 && (
+          {chat.unreadCount > 0 && (
             <span style={{
               background: '#00a884', color: 'white', borderRadius: '50%',
               fontSize: '0.7rem', fontWeight: 'bold', minWidth: 20, height: 20,

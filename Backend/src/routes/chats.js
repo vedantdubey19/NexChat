@@ -11,7 +11,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await query(
-      `SELECT c.id, c.type, c.name, c.avatar_url, c.created_at,
+      `SELECT c.id, c.type, c.name, c.avatar_url, c.created_at, c.is_archived,
               cm.is_pinned, cm.is_muted, cm.last_read_at,
               (SELECT json_build_object(
                 'id', m.id, 'content', m.content, 'type', m.type,
@@ -44,6 +44,7 @@ router.get('/', authenticate, async (req, res) => {
       avatarUrl: row.type === 'group' ? row.avatar_url : row.other_user?.avatarUrl,
       isPinned: row.is_pinned,
       isMuted: row.is_muted,
+      isArchived: row.is_archived,
       lastMessage: row.last_message,
       unreadCount: parseInt(row.unread_count),
       otherUser: row.other_user,
@@ -201,6 +202,37 @@ router.put('/:id/mute', authenticate, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update mute' });
+  }
+});
+
+/**
+ * PUT /api/chats/:id/archive
+ */
+router.put('/:id/archive', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isArchived } = req.body;
+    await query('UPDATE chats SET is_archived = $1 WHERE id = $2', [isArchived, id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to archive chat' });
+  }
+});
+
+/**
+ * DELETE /api/chats/:id
+ */
+router.delete('/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2', [id, req.userId]);
+    const remaining = await query('SELECT 1 FROM chat_members WHERE chat_id = $1', [id]);
+    if (remaining.rows.length === 0) {
+      await query('DELETE FROM chats WHERE id = $1', [id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete chat' });
   }
 });
 
