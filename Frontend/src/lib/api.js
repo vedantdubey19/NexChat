@@ -39,6 +39,10 @@ const api = async (endpoint, options = {}) => {
           // Retry original request
           headers.Authorization = `Bearer ${data.accessToken}`;
           const retryRes = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+          if (!retryRes.ok) {
+            const error = await retryRes.json().catch(() => ({ error: 'Request failed' }));
+            throw new Error(error.error || 'Request failed');
+          }
           return retryRes.json();
         }
       } catch {

@@ -11,6 +11,12 @@ const router = express.Router();
  * POST /api/auth/register
  * Register a new user
  */
+const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+/**
+ * POST /api/auth/register
+ * Register a new user
+ */
 router.post('/register', async (req, res) => {
   try {
     const { username, email, phone, password, fullName } = req.body;
@@ -33,12 +39,16 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
 
+    // Initial verification status: false if provided, true if not provided
+    const emailVerified = !email;
+    const phoneVerified = !phone;
+
     // Create user
     const result = await query(
-      `INSERT INTO users (username, email, phone, password_hash, full_name)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO users (username, email, phone, password_hash, full_name, email_verified, phone_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, username, email, phone, full_name, avatar_url, bio, created_at`,
-      [username, email || null, phone || null, passwordHash, fullName]
+      [username, email || null, phone || null, passwordHash, fullName, emailVerified, phoneVerified]
     );
 
     const user = result.rows[0];
@@ -46,28 +56,30 @@ router.post('/register', async (req, res) => {
     // Create default settings
     await query('INSERT INTO user_settings (user_id) VALUES ($1)', [user.id]);
 
-    // Generate tokens
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
+    // Generate OTP codes
+    const emailOtp = email ? generateOtp() : null;
+    const phoneOtp = phone ? generateOtp() : null;
 
-    // Store refresh token
-    await query(
-      'INSERT INTO sessions (user_id, refresh_token, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'30 days\')',
-      [user.id, refreshToken]
-    );
+    if (emailOtp || phoneOtp) {
+      await query(
+        `INSERT INTO user_otps (user_id, email_otp, phone_otp, expires_at)
+         VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')`,
+        [user.id, emailOtp, phoneOtp]
+      );
+      
+      console.log(`🔑 Verification OTPs for user ${user.username}:`);
+      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
+    }
 
     res.status(201).json({
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        phone: user.phone,
-        fullName: user.full_name,
-        avatarUrl: user.avatar_url,
-        bio: user.bio,
-      },
-      accessToken,
-      refreshToken,
+      message: 'OTP verification required',
+      verificationRequired: true,
+      userId: user.id,
+      email: user.email,
+      phone: user.phone,
+      emailOtp,
+      phoneOtp
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -105,6 +117,40 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Check if email and phone are verified
+    const needsEmailVerification = user.email && !user.email_verified;
+    const needsPhoneVerification = user.phone && !user.phone_verified;
+
+    if (needsEmailVerification || needsPhoneVerification) {
+      // Generate and resend new OTPs
+      const emailOtp = needsEmailVerification ? generateOtp() : null;
+      const phoneOtp = needsPhoneVerification ? generateOtp() : null;
+
+      await query(
+        `INSERT INTO user_otps (user_id, email_otp, phone_otp, expires_at)
+         VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')
+         ON CONFLICT (user_id) DO UPDATE SET
+           email_otp = EXCLUDED.email_otp,
+           phone_otp = EXCLUDED.phone_otp,
+           expires_at = EXCLUDED.expires_at`,
+        [user.id, emailOtp, phoneOtp]
+      );
+
+      console.log(`🔑 Verification OTPs for unverified user logging in ${user.username}:`);
+      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
+
+      return res.json({
+        error: 'Account not verified. Verification code has been sent.',
+        verificationRequired: true,
+        userId: user.id,
+        email: user.email,
+        phone: user.phone,
+        emailOtp,
+        phoneOtp
+      });
+    }
+
     // Update online status
     await query('UPDATE users SET is_online = true, last_seen = NOW() WHERE id = $1', [user.id]);
 
@@ -134,6 +180,142 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+/**
+ * POST /api/auth/verify-otp
+ * Verify OTP for new user
+ */
+router.post('/verify-otp', async (req, res) => {
+  try {
+    const { userId, emailOtp, phoneOtp } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Fetch user
+    const userResult = await query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    // Fetch OTP record
+    const otpResult = await query(
+      'SELECT * FROM user_otps WHERE user_id = $1 AND expires_at > NOW()',
+      [userId]
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(400).json({ error: 'OTP expired or not found. Please request a new one.' });
+    }
+
+    const otps = otpResult.rows[0];
+
+    // Verify OTPs
+    if (user.email && !user.email_verified) {
+      if (otps.email_otp !== emailOtp) {
+        return res.status(400).json({ error: 'Invalid email verification code' });
+      }
+    }
+
+    if (user.phone && !user.phone_verified) {
+      if (otps.phone_otp !== phoneOtp) {
+        return res.status(400).json({ error: 'Invalid phone verification code' });
+      }
+    }
+
+    // Update user status to verified
+    await query(
+      'UPDATE users SET email_verified = true, phone_verified = true, is_online = true, last_seen = NOW() WHERE id = $1',
+      [userId]
+    );
+
+    // Delete OTP record
+    await query('DELETE FROM user_otps WHERE user_id = $1', [userId]);
+
+    // Create default settings if not exists
+    await query(
+      'INSERT INTO user_settings (user_id) VALUES ($1) ON CONFLICT DO NOTHING',
+      [userId]
+    );
+
+    // Generate tokens
+    const accessToken = generateAccessToken(userId);
+    const refreshToken = generateRefreshToken(userId);
+
+    // Store session
+    await query(
+      'INSERT INTO sessions (user_id, refresh_token, device_info, ip_address, expires_at) VALUES ($1, $2, $3, $4, NOW() + INTERVAL \'30 days\')',
+      [userId, refreshToken, req.headers['user-agent'], req.ip]
+    );
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        phone: user.phone,
+        fullName: user.full_name,
+        avatarUrl: user.avatar_url,
+        bio: user.bio,
+      },
+      accessToken,
+      refreshToken,
+    });
+  } catch (err) {
+    console.error('Verify OTP error:', err);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+/**
+ * POST /api/auth/resend-otp
+ * Resend OTP code
+ */
+router.post('/resend-otp', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const userResult = await query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    const emailOtp = user.email && !user.email_verified ? generateOtp() : null;
+    const phoneOtp = user.phone && !user.phone_verified ? generateOtp() : null;
+
+    if (emailOtp || phoneOtp) {
+      // Upsert OTP
+      await query(
+        `INSERT INTO user_otps (user_id, email_otp, phone_otp, expires_at)
+         VALUES ($1, $2, $3, NOW() + INTERVAL '10 minutes')
+         ON CONFLICT (user_id) DO UPDATE SET
+           email_otp = EXCLUDED.email_otp,
+           phone_otp = EXCLUDED.phone_otp,
+           expires_at = EXCLUDED.expires_at`,
+        [userId, emailOtp, phoneOtp]
+      );
+
+      console.log(`🔑 Resent OTPs for user ${user.username}:`);
+      if (emailOtp) console.log(`  - Email OTP [${user.email}]: ${emailOtp}`);
+      if (phoneOtp) console.log(`  - Phone OTP [${user.phone}]: ${phoneOtp}`);
+    }
+
+    res.json({
+      message: 'OTPs resent successfully',
+      emailOtp,
+      phoneOtp
+    });
+  } catch (err) {
+    console.error('Resend OTP error:', err);
+    res.status(500).json({ error: 'Failed to resend OTP' });
   }
 });
 

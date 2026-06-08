@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import MainLayout from '@/components/MainLayout';
 
 const MOCK_STATUSES = [
   { id: '1', user: 'Maya Patel', time: '2026-03-24T09:00:00Z', viewed: false, content: '🚀 Just shipped the new feature!', bgColor: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
@@ -36,114 +37,130 @@ export default function StatusPage() {
   const viewedStatuses = MOCK_STATUSES.filter(s => s.viewed);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Header */}
-      <div className="glass-header" style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: 'var(--sp-4) var(--sp-4) var(--sp-3)',
-      }}>
-        <h1 className="text-headline">Status</h1>
-      </div>
-
-      <div className="main-content" style={{ padding: '0 var(--sp-4)' }}>
-        {/* My Status */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-          padding: 'var(--sp-3) 0', cursor: 'pointer',
+    <MainLayout activeTab="status">
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', background: 'var(--background)' }}>
+        {/* Header */}
+        <div className="glass-header" style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '12px 16px', background: 'var(--surface-container-high)',
+          borderBottom: '1px solid var(--outline-variant)', height: 60, flexShrink: 0
         }}>
-          <div style={{ position: 'relative' }}>
-            <div className="avatar" style={{ background: 'var(--gradient-primary)', width: 52, height: 52, fontSize: '1.1rem' }}>
-              {user?.fullName?.charAt(0) || 'V'}
-            </div>
-            <div style={{
-              position: 'absolute', bottom: -2, right: -2,
-              width: 22, height: 22, borderRadius: '50%',
-              background: 'var(--primary)', border: '2px solid var(--surface)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>My Status</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>Tap to add status update</div>
-          </div>
+          {/* Back Button (shown on mobile, hidden on desktop) */}
+          <button 
+            onClick={() => router.push('/chat')} 
+            className="back-btn-responsive btn btn-icon btn-ghost" 
+            style={{ width: 36, height: 36, flexShrink: 0 }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+
+          <h1 className="text-headline" style={{ flex: 1, color: 'var(--on-surface)', fontSize: '1.2rem', paddingLeft: 4 }}>Status</h1>
         </div>
 
-        {/* Recent */}
-        {recentStatuses.length > 0 && (
-          <>
-            <span className="text-label" style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem', display: 'block', marginTop: 'var(--sp-3)', marginBottom: 'var(--sp-2)' }}>RECENT UPDATES</span>
-            {recentStatuses.map(status => (
-              <div key={status.id} style={{
-                display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-                padding: 'var(--sp-3) 0', cursor: 'pointer',
-              }}>
-                <div style={{
-                  width: 52, height: 52, borderRadius: '50%',
-                  padding: 2,
-                  background: 'var(--gradient-primary)',
-                }}>
-                  <div className="avatar" style={{ background: getAvatarColor(status.user), width: '100%', height: '100%', fontSize: '1rem', border: '2px solid var(--surface)' }}>
-                    {getInitials(status.user)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{status.user}</div>
-                  <div suppressHydrationWarning style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{formatStatusTime(status.time)}</div>
-                </div>
+        {/* Content */}
+        <div className="scroll-y" style={{ flex: 1, padding: '16px 24px' }}>
+          {/* My Status */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px 16px', borderRadius: 8,
+            background: 'var(--surface-container-lowest)',
+            boxShadow: 'var(--shadow-sm)',
+            marginBottom: 20
+          }}>
+            <div style={{ position: 'relative' }}>
+              <div className="avatar" style={{ background: 'var(--gradient-primary)', width: 48, height: 48, fontSize: '1rem' }}>
+                {user?.fullName?.charAt(0) || 'V'}
               </div>
-            ))}
-          </>
-        )}
+              <div style={{
+                position: 'absolute', bottom: -2, right: -2,
+                width: 20, height: 20, borderRadius: '50%',
+                background: '#00a884', border: '2px solid var(--surface-container-lowest)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--on-surface)' }}>My Status</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>Tap to add status update</div>
+            </div>
+          </div>
 
-        {/* Viewed */}
-        {viewedStatuses.length > 0 && (
-          <>
-            <span className="text-label" style={{ color: 'var(--on-surface-variant)', fontSize: '0.65rem', display: 'block', marginTop: 'var(--sp-3)', marginBottom: 'var(--sp-2)' }}>VIEWED UPDATES</span>
-            {viewedStatuses.map(status => (
-              <div key={status.id} style={{
-                display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-                padding: 'var(--sp-3) 0', cursor: 'pointer',
-              }}>
-                <div style={{
-                  width: 52, height: 52, borderRadius: '50%',
-                  padding: 2,
-                  background: 'var(--outline-variant)',
-                }}>
-                  <div className="avatar" style={{ background: getAvatarColor(status.user), width: '100%', height: '100%', fontSize: '1rem', border: '2px solid var(--surface)', opacity: 0.7 }}>
-                    {getInitials(status.user)}
+          {/* Recent */}
+          {recentStatuses.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <span className="text-label" style={{ color: 'var(--primary)', fontSize: '0.68rem', display: 'block', marginBottom: 12, fontWeight: 600 }}>RECENT UPDATES</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {recentStatuses.map(status => (
+                  <div key={status.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 16px', borderRadius: 8,
+                    background: 'var(--surface-container-lowest)',
+                    boxShadow: 'var(--shadow-sm)',
+                  }}>
+                    <div style={{
+                      width: 48, height: 48, borderRadius: '50%',
+                      padding: 2,
+                      background: 'var(--gradient-primary)',
+                    }}>
+                      <div className="avatar" style={{ background: getAvatarColor(status.user), width: '100%', height: '100%', fontSize: '0.9rem', border: '2px solid var(--surface-container-lowest)' }}>
+                        {getInitials(status.user)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--on-surface)' }}>{status.user}</div>
+                      <div suppressHydrationWarning style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', marginTop: 2 }}>{formatStatusTime(status.time)}</div>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.95rem', opacity: 0.7 }}>{status.user}</div>
-                  <div suppressHydrationWarning style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{formatStatusTime(status.time)}</div>
-                </div>
+                ))}
               </div>
-            ))}
-          </>
-        )}
+            </div>
+          )}
+
+          {/* Viewed */}
+          {viewedStatuses.length > 0 && (
+            <div>
+              <span className="text-label" style={{ color: 'var(--on-surface-variant)', fontSize: '0.68rem', display: 'block', marginBottom: 12, fontWeight: 600 }}>VIEWED UPDATES</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {viewedStatuses.map(status => (
+                  <div key={status.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 16px', borderRadius: 8,
+                    background: 'var(--surface-container-lowest)',
+                    boxShadow: 'var(--shadow-sm)',
+                    opacity: 0.85
+                  }}>
+                    <div style={{
+                      width: 48, height: 48, borderRadius: '50%',
+                      padding: 2,
+                      background: 'var(--outline-variant)',
+                    }}>
+                      <div className="avatar" style={{ background: getAvatarColor(status.user), width: '100%', height: '100%', fontSize: '0.9rem', border: '2px solid var(--surface-container-lowest)' }}>
+                        {getInitials(status.user)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--on-surface)' }}>{status.user}</div>
+                      <div suppressHydrationWarning style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', marginTop: 2 }}>{formatStatusTime(status.time)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Bottom Nav */}
-      <nav className="bottom-nav">
-        <button className="nav-item" onClick={() => router.push('/chat')}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span>Chats</span>
-        </button>
-        <button className="nav-item" onClick={() => router.push('/calls')}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-          <span>Calls</span>
-        </button>
-        <button className="nav-item active" onClick={() => router.push('/status')}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-          <span>Status</span>
-        </button>
-        <button className="nav-item" onClick={() => router.push('/settings')}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings</span>
-        </button>
-      </nav>
-    </div>
+      <style jsx>{`
+        .back-btn-responsive {
+          display: none !important;
+        }
+        @media (max-width: 767px) {
+          .back-btn-responsive {
+            display: flex !important;
+          }
+        }
+      `}</style>
+    </MainLayout>
   );
 }

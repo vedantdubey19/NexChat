@@ -1,18 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
+import { get } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
+import MainLayout from '@/components/MainLayout';
 
-const MOCK_MESSAGES = [
-  { id: '1', senderId: 'other', sender: { fullName: 'Sarah Chen' }, content: 'Hey! How\'s the project going? 🚀', type: 'text', createdAt: '2024-01-15T10:30:00Z', status: 'read' },
-  { id: '2', senderId: 'me', content: 'Going great! Just finished the backend API', type: 'text', createdAt: '2024-01-15T10:32:00Z', status: 'read' },
-  { id: '3', senderId: 'other', sender: { fullName: 'Sarah Chen' }, content: 'That\'s awesome! Can you show me a demo later today?', type: 'text', createdAt: '2024-01-15T10:33:00Z', status: 'read' },
-  { id: '4', senderId: 'me', content: 'Sure! I\'ll set up a call around 3 PM. The real-time messaging is working perfectly with Socket.IO 💬', type: 'text', createdAt: '2024-01-15T10:35:00Z', status: 'read' },
-  { id: '5', senderId: 'other', sender: { fullName: 'Sarah Chen' }, content: 'Perfect! I\'ll also review the design docs you shared', type: 'text', createdAt: '2024-01-15T10:36:00Z', status: 'read' },
-  { id: '6', senderId: 'me', content: 'Sounds good. I\'ve also added dark mode support 🌙', type: 'text', createdAt: '2024-01-15T10:38:00Z', status: 'delivered' },
-  { id: '7', senderId: 'other', sender: { fullName: 'Sarah Chen' }, content: 'Nice! Our users have been requesting that for a while', type: 'text', createdAt: '2024-01-15T10:40:00Z', status: 'read' },
-  { id: '8', senderId: 'me', content: 'Yeah, it uses CSS custom properties so the whole theme switches instantly ⚡', type: 'text', createdAt: '2024-01-15T10:41:00Z', status: 'sent' },
-];
 
 const formatMessageTime = (dateStr) => {
   if (typeof window === 'undefined') return '';
@@ -21,49 +15,216 @@ const formatMessageTime = (dateStr) => {
 
 const getTick = (status) => {
   switch (status) {
-    case 'read': return <span className="tick tick-read">✓✓</span>;
-    case 'delivered': return <span className="tick tick-delivered">✓✓</span>;
-    case 'sent': return <span className="tick tick-sent">✓</span>;
+    case 'read': return <span style={{ color: '#53bdeb', marginLeft: 2, fontSize: '0.7rem' }}>✓✓</span>;
+    case 'delivered': return <span style={{ color: 'var(--on-surface-variant)', opacity: 0.6, marginLeft: 2, fontSize: '0.7rem' }}>✓✓</span>;
+    case 'sent': return <span style={{ color: 'var(--on-surface-variant)', opacity: 0.4, marginLeft: 2, fontSize: '0.7rem' }}>✓</span>;
     default: return null;
   }
 };
 
 export default function ChatViewPage() {
   const router = useRouter();
-  const params = useParams();
-  const [messages, setMessages] = useState(MOCK_MESSAGES);
+  const { id } = useParams();
+  const { user, initiateCall } = useAuth();
+  
+  const [chat, setChat] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(true);
+  const [isTyping, setIsTyping] = useState(false);
+  const [amITyping, setAmITyping] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
-  useEffect(() => {
+  // Scroll to bottom helper
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  };
 
-  // Simulate typing indicator
   useEffect(() => {
-    const timer = setTimeout(() => setIsTyping(false), 3000);
-    return () => clearTimeout(timer);
-  }, []);
+    scrollToBottom();
+  }, [messages, isTyping]);
 
+  // Fetch chat metadata & initial messages
+  const loadChatData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID_REGEX.test(id)) {
+        // Not a valid chat UUID — redirect back
+        router.replace('/chat');
+        return;
+      }
+
+      const [msgsData, chatsList] = await Promise.all([
+        get(`/chats/${id}/messages`),
+        get('/chats'),
+      ]);
+      setMessages(Array.isArray(msgsData) ? msgsData : []);
+      const activeChat = (chatsList || []).find(c => String(c.id) === String(id));
+      setChat(activeChat || null);
+
+      const socket = getSocket();
+      if (socket && socket.connected) {
+        (msgsData || []).forEach(m => {
+          if (m.senderId !== user?.id && m.status !== 'read') {
+            socket.emit('message:seen', { messageId: m.id, chatId: id });
+          }
+        });
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load messages');
+    } finally {
+      setLoading(false);
+    }
+  }, [id, user, router]);
+
+  useEffect(() => {
+    loadChatData();
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const handleNewMessage = (msg) => {
+      if (String(msg.chatId) === String(id)) {
+        setMessages((prev) => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+
+        if (msg.senderId !== user?.id) {
+          socket.emit('message:seen', { messageId: msg.id, chatId: id });
+        }
+      }
+    };
+
+    const handleMessageStatus = ({ messageId, userId, status }) => {
+      setMessages((prev) => prev.map(m => 
+        m.id === messageId ? { ...m, status } : m
+      ));
+    };
+
+    const handleTypingStart = ({ chatId, userId }) => {
+      if (String(chatId) === String(id) && userId !== user?.id) {
+        setIsTyping(true);
+      }
+    };
+
+    const handleTypingStop = ({ chatId, userId }) => {
+      if (String(chatId) === String(id) && userId !== user?.id) {
+        setIsTyping(false);
+      }
+    };
+
+    const handleUserOnline = ({ userId }) => {
+      setChat((prev) => {
+        if (prev?.type === 'direct' && prev.otherUser?.id === userId) {
+          return { ...prev, otherUser: { ...prev.otherUser, isOnline: true } };
+        }
+        return prev;
+      });
+    };
+
+    const handleUserOffline = ({ userId }) => {
+      setChat((prev) => {
+        if (prev?.type === 'direct' && prev.otherUser?.id === userId) {
+          return { ...prev, otherUser: { ...prev.otherUser, isOnline: false } };
+        }
+        return prev;
+      });
+    };
+
+    socket.on('message:new', handleNewMessage);
+    socket.on('message:status', handleMessageStatus);
+    socket.on('typing:start', handleTypingStart);
+    socket.on('typing:stop', handleTypingStop);
+    socket.on('user:online', handleUserOnline);
+    socket.on('user:offline', handleUserOffline);
+
+    return () => {
+      socket.off('message:new', handleNewMessage);
+      socket.off('message:status', handleMessageStatus);
+      socket.off('typing:start', handleTypingStart);
+      socket.off('typing:stop', handleTypingStop);
+      socket.off('user:online', handleUserOnline);
+      socket.off('user:offline', handleUserOffline);
+    };
+  }, [id, user, loadChatData]);
+
+  // Handle typing debounce
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setInput(val);
+
+    const socket = getSocket();
+    if (!socket || !socket.connected) return;
+
+    if (!amITyping && val.trim()) {
+      setAmITyping(true);
+      socket.emit('typing:start', { chatId: id });
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing:stop', { chatId: id });
+      setAmITyping(false);
+    }, 2000);
+  };
+
+  // Send message
   const sendMessage = () => {
     if (!input.trim()) return;
+
+    const socket = getSocket();
+    if (!socket || !socket.connected) {
+      setError('Not connected. Please check your connection.');
+      return;
+    }
+
     const newMsg = {
-      id: Date.now().toString(),
-      senderId: 'me',
-      content: input,
+      id: `msg-${Date.now()}`,
+      chatId: id,
+      senderId: user?.id,
+      content: input.trim(),
       type: 'text',
-      createdAt: new Date().toISOString(),
       status: 'sent',
+      createdAt: new Date().toISOString()
     };
+
+    // Optimistically add to UI
     setMessages(prev => [...prev, newMsg]);
     setInput('');
 
-    // Simulate delivery
-    setTimeout(() => {
-      setMessages(prev => prev.map(m => m.id === newMsg.id ? { ...m, status: 'delivered' } : m));
-    }, 1000);
+    // Emit over socket
+    socket.emit('message:send', {
+      chatId: id,
+      content: newMsg.content,
+      type: 'text',
+    });
+
+    // Stop typing indicator
+    if (amITyping) {
+      socket.emit('typing:stop', { chatId: id });
+      setAmITyping(false);
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
   };
+
+
+
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -72,144 +233,232 @@ export default function ChatViewPage() {
     }
   };
 
+  const getInitials = (name) => name?.split(' ').map(w => w[0]).join('').toUpperCase() || '?';
+  const getAvatarColor = (name) => {
+    const colors = ['#2563EB', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    let hash = 0;
+    for (let i = 0; i < (name?.length || 0); i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const avatarBg = chat?.avatarUrl ? 'transparent' : getAvatarColor(chat?.name || '');
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* Chat Header */}
-      <div className="glass-header" style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
-        padding: 'var(--sp-3) var(--sp-4)',
-      }}>
-        <button onClick={() => router.push('/chat')} className="btn btn-icon btn-ghost" style={{ width: 36, height: 36 }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-        </button>
-
-        <div className="avatar avatar-online" style={{ background: '#2563EB', width: 40, height: 40, fontSize: '0.85rem' }}>SC</div>
-
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Sarah Chen</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--accent)' }}>
-            {isTyping ? (
-              <span>typing<span className="typing-dots" style={{ marginLeft: 2 }}><span></span><span></span><span></span></span></span>
-            ) : 'Online'}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
-          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 3.12 4.18 2 2 0 0 1 5.08 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L9.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-          </button>
-          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          </button>
-          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: 'var(--sp-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--sp-2)',
-        scrollbarWidth: 'none',
-      }}>
-        {/* Date header */}
+    <MainLayout activeTab="chats" activeChatId={id}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+        {/* Chat Header */}
         <div style={{
-          textAlign: 'center', padding: 'var(--sp-2)',
-          fontSize: '0.7rem', color: 'var(--on-surface-variant)',
-          background: 'color-mix(in srgb, var(--surface-container) 60%, transparent)',
-          borderRadius: 'var(--radius-full)', alignSelf: 'center',
-          padding: 'var(--sp-1) var(--sp-3)',
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '10px 16px', background: 'var(--surface-container-high)',
+          borderBottom: '1px solid var(--outline-variant)', height: 60, flexShrink: 0
         }}>
-          Today
-        </div>
-
-        {messages.map(msg => (
-          <div key={msg.id}
-            className={msg.senderId === 'me' ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
+          {/* Back Button (shown on mobile, hidden on desktop) */}
+          <button 
+            onClick={() => router.push('/chat')} 
+            className="back-btn-responsive btn btn-icon btn-ghost" 
+            style={{ width: 36, height: 36, flexShrink: 0 }}
           >
-            <div>{msg.content}</div>
-            <div className="bubble-time">
-              <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
-              {msg.senderId === 'me' && <> {getTick(msg.status)}</>}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+
+          {/* User Avatar */}
+          <div className={`avatar ${chat?.type === 'direct' && chat?.otherUser?.isOnline ? 'avatar-online' : ''}`}
+            style={{ background: avatarBg, width: 40, height: 40, fontSize: '0.85rem', flexShrink: 0 }}>
+            {chat?.type === 'group' ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            ) : getInitials(chat?.name || '')}
+          </div>
+
+          {/* User Name & Status */}
+          <div style={{ flex: 1, minWidth: 0, paddingLeft: 4 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--on-surface)' }} className="truncate">
+              {chat?.name || 'Loading Chat...'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
+              {isTyping ? (
+                <span style={{ color: '#00a884', fontWeight: 500 }}>typing...</span>
+              ) : chat?.type === 'group' ? (
+                `${chat?.memberCount || 2} members`
+              ) : chat?.otherUser?.isOnline ? (
+                <span style={{ color: '#00a884', fontWeight: 500 }}>Online</span>
+              ) : (
+                'Offline'
+              )}
             </div>
           </div>
-        ))}
 
-        {/* Typing indicator */}
-        {isTyping && (
-          <div className="bubble bubble-incoming" style={{ padding: 'var(--sp-2) var(--sp-4)' }}>
-            <div className="typing-dots"><span></span><span></span><span></span></div>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Message Input */}
-      <div style={{
-        padding: 'var(--sp-3) var(--sp-4)',
-        background: 'var(--surface-container-lowest)',
-        display: 'flex',
-        alignItems: 'flex-end',
-        gap: 'var(--sp-2)',
-        borderTop: '1px solid color-mix(in srgb, var(--outline-variant) 15%, transparent)',
-      }}>
-        <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0 }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-        </button>
-
-        <div style={{ flex: 1, position: 'relative' }}>
-          <input
-            id="message-input"
-            className="input-field"
-            placeholder="Type a message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            style={{
-              background: 'var(--surface-container)',
-              borderRadius: 'var(--radius-2xl)',
-              paddingRight: 80,
-            }}
-          />
-          <div style={{
-            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-            display: 'flex', gap: 'var(--sp-1)',
-          }}>
-            <button className="btn btn-icon btn-ghost" style={{ width: 28, height: 28 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-            </button>
-            <button className="btn btn-icon btn-ghost" style={{ width: 28, height: 28 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          {/* Calling actions */}
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            {chat?.type === 'direct' && (
+              <>
+                <button 
+                  id="call-voice-btn" 
+                  onClick={() => initiateCall(chat.otherUser.id, chat.name, 'voice')} 
+                  className="btn btn-icon btn-ghost" 
+                  title="Voice Call"
+                  style={{ width: 36, height: 36, color: 'var(--primary)' }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 3.12 4.18 2 2 0 0 1 5.08 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                </button>
+                <button 
+                  id="call-video-btn" 
+                  onClick={() => initiateCall(chat.otherUser.id, chat.name, 'video')} 
+                  className="btn btn-icon btn-ghost" 
+                  title="Video Call"
+                  style={{ width: 36, height: 36, color: 'var(--primary)' }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                </button>
+              </>
+            )}
+            <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, color: 'var(--on-surface-variant)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
             </button>
           </div>
         </div>
 
-        {input.trim() ? (
-          <button
-            id="send-button"
-            onClick={sendMessage}
-            style={{
-              width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--primary)', color: 'white',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              border: 'none', cursor: 'pointer',
-              animation: 'bubbleIn 0.2s ease',
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        {/* Message Log viewport */}
+        <div className="chat-bg scroll-y" style={{
+          flex: 1,
+          padding: '16px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}>
+          {error && (
+            <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: 8, color: 'var(--danger)', fontSize: '0.8rem', textAlign: 'center' }}>
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>Loading messages...</div>
+          ) : messages.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--on-surface-variant)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+              No messages yet. Say hello! 👋
+            </div>
+          ) : (
+            <>
+              <div style={{
+                textAlign: 'center', padding: '4px 12px',
+                fontSize: '0.7rem', color: 'var(--on-surface-variant)',
+                background: 'var(--surface-container-high)',
+                borderRadius: 4, alignSelf: 'center',
+                boxShadow: 'var(--shadow-sm)',
+                marginBottom: 10, fontWeight: 500
+              }}>
+                Conversation Started
+              </div>
+
+              {messages.map(msg => {
+                const isMe = msg.senderId === user?.id;
+                return (
+                  <div key={msg.id}
+                    className={isMe ? 'bubble bubble-outgoing' : 'bubble bubble-incoming'}
+                  >
+                    {!isMe && chat?.type === 'group' && (
+                      <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)', marginBottom: 2 }}>
+                        {msg.sender?.fullName}
+                      </div>
+                    )}
+                    <div style={{ wordBreak: 'break-word', fontSize: '0.9rem', color: 'var(--bubble-text)' }}>
+                      {msg.content}
+                    </div>
+                    <div className="bubble-time" style={{ color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                      <span suppressHydrationWarning>{formatMessageTime(msg.createdAt)}</span>
+                      {isMe && getTick(msg.status)}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Typing indicator */}
+          {isTyping && (
+            <div className="bubble bubble-incoming" style={{ padding: '8px 12px', width: 60 }}>
+              <div className="typing-dots"><span></span><span></span><span></span></div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Message Input bottom bar */}
+        <div style={{
+          padding: '10px 16px',
+          background: 'var(--surface-container-high)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          borderTop: '1px solid var(--outline-variant)',
+          flexShrink: 0
+        }}>
+          {/* Emoji */}
+          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </button>
-        ) : (
-          <button className="btn btn-icon btn-ghost" style={{ width: 40, height: 40, flexShrink: 0 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          
+          {/* Attachment clip */}
+          <button className="btn btn-icon btn-ghost" style={{ width: 36, height: 36, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
-        )}
+
+          {/* Text Input area */}
+          <div style={{ flex: 1, display: 'flex' }}>
+            <input
+              id="message-input"
+              className="input-field"
+              placeholder="Type a message"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              style={{
+                background: 'var(--surface-container-lowest)',
+                borderRadius: 8,
+                padding: '10px 16px',
+                height: 42,
+                fontSize: '0.9rem',
+                border: 'none',
+                color: 'var(--on-surface)',
+                outline: 'none',
+                width: '100%'
+              }}
+            />
+          </div>
+
+          {/* Send or Voice Trigger */}
+          {input.trim() ? (
+            <button
+              id="send-button"
+              onClick={sendMessage}
+              style={{
+                width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--primary)', color: 'white',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                border: 'none', cursor: 'pointer',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          ) : (
+            <button className="btn btn-icon btn-ghost" style={{ width: 40, height: 40, flexShrink: 0, color: 'var(--on-surface-variant)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+
+      <style jsx>{`
+        .back-btn-responsive {
+          display: none !important;
+        }
+        @media (max-width: 767px) {
+          .back-btn-responsive {
+            display: flex !important;
+          }
+        }
+      `}</style>
+    </MainLayout>
   );
 }

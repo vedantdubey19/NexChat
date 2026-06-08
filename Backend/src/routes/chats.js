@@ -103,6 +103,11 @@ router.get('/:id/messages', authenticate, async (req, res) => {
     const { id } = req.params;
     const { before, limit = 50 } = req.query;
 
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid chat ID format' });
+    }
+
     // Verify membership
     const member = await query(
       'SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2',
@@ -113,6 +118,7 @@ router.get('/:id/messages', authenticate, async (req, res) => {
     let messagesQuery = `
       SELECT m.id, m.content, m.type, m.sender_id, m.reply_to, m.is_edited,
              m.is_deleted, m.metadata, m.created_at,
+             (SELECT COALESCE(MIN(status), 'sent') FROM message_status WHERE message_id = m.id) as status,
              json_build_object('id', u.id, 'username', u.username, 'fullName', u.full_name, 'avatarUrl', u.avatar_url) as sender,
              CASE WHEN m.reply_to IS NOT NULL THEN
                (SELECT json_build_object('id', rm.id, 'content', rm.content, 'senderId', rm.sender_id)
@@ -149,6 +155,7 @@ router.get('/:id/messages', authenticate, async (req, res) => {
       isDeleted: m.is_deleted,
       metadata: m.metadata,
       reactions: m.reactions || [],
+      status: m.status,
       createdAt: m.created_at,
     })));
   } catch (err) {
@@ -162,9 +169,15 @@ router.get('/:id/messages', authenticate, async (req, res) => {
  */
 router.put('/:id/pin', authenticate, async (req, res) => {
   try {
+    const { id } = req.params;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid chat ID format' });
+    }
+
     const { isPinned } = req.body;
     await query('UPDATE chat_members SET is_pinned = $1 WHERE chat_id = $2 AND user_id = $3',
-      [isPinned, req.params.id, req.userId]);
+      [isPinned, id, req.userId]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update pin' });
@@ -176,9 +189,15 @@ router.put('/:id/pin', authenticate, async (req, res) => {
  */
 router.put('/:id/mute', authenticate, async (req, res) => {
   try {
+    const { id } = req.params;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid chat ID format' });
+    }
+
     const { isMuted } = req.body;
     await query('UPDATE chat_members SET is_muted = $1 WHERE chat_id = $2 AND user_id = $3',
-      [isMuted, req.params.id, req.userId]);
+      [isMuted, id, req.userId]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update mute' });

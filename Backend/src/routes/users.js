@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 
@@ -49,7 +50,7 @@ router.get('/profile', authenticate, async (req, res) => {
  */
 router.put('/profile', authenticate, async (req, res) => {
   try {
-    const { fullName, username, bio, avatarUrl } = req.body;
+    const { fullName, username, bio, avatarUrl, email, phone } = req.body;
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -58,6 +59,8 @@ router.put('/profile', authenticate, async (req, res) => {
     if (username !== undefined) { updates.push(`username = $${paramCount++}`); values.push(username); }
     if (bio !== undefined) { updates.push(`bio = $${paramCount++}`); values.push(bio); }
     if (avatarUrl !== undefined) { updates.push(`avatar_url = $${paramCount++}`); values.push(avatarUrl); }
+    if (email !== undefined) { updates.push(`email = $${paramCount++}`); values.push(email); }
+    if (phone !== undefined) { updates.push(`phone = $${paramCount++}`); values.push(phone); }
 
     if (updates.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -119,6 +122,45 @@ router.get('/search', authenticate, async (req, res) => {
     })));
   } catch (err) {
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+/**
+ * PUT /api/users/change-password
+ * Change current user's password
+ */
+router.put('/change-password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    // Fetch current user's password hash
+    const result = await query('SELECT password_hash FROM users WHERE id = $1', [req.userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid current password' });
+    }
+
+    // Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    const newHash = await bcrypt.hash(newPassword, salt);
+
+    // Update in database
+    await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, req.userId]);
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 
