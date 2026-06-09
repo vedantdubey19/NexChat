@@ -43,6 +43,18 @@ CREATE TABLE user_settings (
 );
 
 -- ============================================
+-- USER OTPS (Verification codes)
+-- ============================================
+CREATE TABLE user_otps (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    email_otp VARCHAR(6),
+    phone_otp VARCHAR(6),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
 -- CONTACTS
 -- ============================================
 CREATE TABLE contacts (
