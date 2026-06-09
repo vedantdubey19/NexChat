@@ -8,425 +8,256 @@ app_port: 7860
 pinned: false
 ---
 
-# 🚀 NexChat — AI-Powered Real-Time Chat Platform
+# 🚀 NexChat — Real-Time Messaging & WebRTC Calling Platform
 
 <div align="center">
 
-<h3>Modern Full-Stack AI Chat Application with Authentication, Real-Time Messaging & Intelligent Conversations</h3>
+<h3>A Modern Full-Stack Real-Time Chat Application featuring WebRTC Voice/Video Calls, OTP Security & PostgreSQL</h3>
 
-![GitHub stars](https://img.shields.io/github/stars/vedantdubey19/NexChat?style=for-the-badge)
-![GitHub forks](https://img.shields.io/github/forks/vedantdubey19/NexChat?style=for-the-badge)
-![GitHub issues](https://img.shields.io/github/issues/vedantdubey19/NexChat?style=for-the-badge)
+![GitHub stars](https://img.shields.io/github/stars/vedantdubey19/NexChat?style=for-the-badge&color=blue)
+![GitHub forks](https://img.shields.io/github/forks/vedantdubey19/NexChat?style=for-the-badge&color=purple)
+![GitHub issues](https://img.shields.io/github/issues/vedantdubey19/NexChat?style=for-the-badge&color=red)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 </div>
 
 ---
 
-## 📖 About The Project
+## 📖 Project Overview
 
-NexChat is a modern AI-powered chat platform designed to deliver intelligent and seamless conversations through a clean user interface and scalable backend architecture.
+**NexChat** is a production-ready, full-stack real-time communication platform designed to replicate the seamless user experience of modern messaging applications like WhatsApp Web. 
 
-Built using modern web technologies, NexChat combines secure authentication, real-time communication, AI integration, and responsive design to provide an engaging user experience.
+Built on a highly optimized architecture, NexChat features instant messaging powered by WebSockets, direct peer-to-peer audio/video calls using WebRTC, and a modern custom design system. It uses a serverless PostgreSQL database (Neon) for secure, scalable state persistence and email onboarding verified through the Resend API.
 
-Whether you're exploring AI applications, building conversational systems, or learning full-stack development, NexChat serves as a powerful foundation for modern chat solutions.
-
----
-
-## ✨ Key Features
-
-### 🤖 AI-Powered Conversations
-- Intelligent AI chat responses
-- Context-aware interactions
-- Fast response generation
-- Multiple AI model support ready
-
-### 🔐 Authentication & Security
-- Secure user registration
-- JWT authentication
-- Protected routes
-- Session management
-- OAuth integration support
-
-### 💬 Real-Time Communication
-- Instant messaging experience
-- Dynamic chat updates
-- Persistent conversations
-- Chat history management
-
-### 👤 User Experience
-- Modern responsive UI
-- Mobile-friendly design
-- Smooth navigation
-- Clean chat interface
-- Optimized performance
-
-### ⚡ Performance
-- Fast API responses
-- Optimized database queries
-- Scalable architecture
-- Efficient state management
+*Designed with recruiters in mind, this project demonstrates clean MVC backend design, database normalization, custom state management, security best-practices, and complete containerization.*
 
 ---
 
-# 🏗️ System Architecture
+## 📱 Visual Showcase & Live Demo
+
+| Registration & OTP | Chat Dashboard & RTC Calling |
+|:---:|:---:|
+| ![Signup](screenshots/signup.png) | ![Dashboard](screenshots/chat-dashboard.png) |
+
+---
+
+## ✨ Features Showcase
+
+### 💬 Real-Time Instant Messaging
+*   **Dynamic Chat Feeds:** Real-time message exchange powered by Socket.IO.
+*   **Presence Indicators:** Active state status (`online`, `offline`, or `last seen`).
+*   **Typing Indicators:** Visual cues when a user starts typing in a direct or group chat.
+*   **Read Receipts:** Step-by-step indicators: Sent (✓), Delivered (✓✓), and Read (Blue ✓✓).
+*   **Reactions & Edits:** React to messages with emojis and edit/soft-delete messages dynamically.
+
+### 📞 WebRTC Voice & Video Calling
+*   **Peer-to-Peer Media:** Direct high-quality browser-to-browser calls using standard `getUserMedia` APIs.
+*   **Signaling Channel:** Node/Socket.IO backend acts as the SDP offer/answer and ICE candidate broker.
+*   **STUN Server Integration:** Automatic NAT traversal using Google public STUN servers.
+
+### 🔐 Auth & Enterprise Security
+*   **OTP Onboarding:** Two-factor onboarding using secure 6-digit OTP codes sent via the **Resend API**.
+*   **JWT Session Manager:** Dual-token rotation scheme utilizing short-lived Access Tokens and secure database-persisted Refresh Tokens.
+*   **Security Middleware:** Express server hardened using `helmet`, CORS filters, and `express-rate-limit` to prevent brute-force attacks.
+
+---
+
+## 🛠 Tech Stack
+
+### Frontend
+*   **Next.js 16 (App Router):** Fast, React-based server-side rendering framework.
+*   **Vanilla CSS Design System:** Modern custom HSL layout system featuring theme presets, custom animations, and responsive grids.
+*   **Socket.IO Client:** Persistent full-duplex socket integration.
+
+### Backend
+*   **Node.js & Express:** Lightweight, modular REST API and route controller backend.
+*   **Socket.IO Server:** Real-time event broker handling room joins, presence, and WebRTC signals.
+*   **Multer:** Configured middleware handling multi-part file uploads (supports up to 50MB attachments).
+
+### Database & Integrations
+*   **PostgreSQL:** Normalised database structure.
+*   **Neon DB:** High-performance, serverless PostgreSQL database provider.
+*   **Resend API:** Transactional email OTP dispatcher.
+
+---
+
+## 🏗️ System Architecture & Protocols
+
+### 📡 WebRTC Calling Sequence
+The WebRTC protocol routes signaling handshake metadata through the Express Socket.IO server:
 
 ```text
-┌─────────────────────────┐
-│        Frontend         │
-│   React / Next.js UI    │
-└────────────┬────────────┘
-             │
-             ▼
-┌─────────────────────────┐
-│      Backend API        │
-│   Node.js + Express     │
-└────────────┬────────────┘
-             │
- ┌───────────┴───────────┐
- ▼                       ▼
-┌───────────┐      ┌─────────────┐
-│ MongoDB   │      │ AI Provider │
-│ Database  │      │ OpenAI API  │
-└───────────┘      └─────────────┘
+ Caller Client                       Signaling Server                     Callee Client
+ -------------                       ----------------                      -------------
+   getUserMedia()
+   POST /calls/initiate ------------> Logs to database
+   socket.emit('call:initiate') ----> Socket.IO server -------------> socket.emit('call:incoming')
+                                                                       getUserMedia()
+                                                                       socket.emit('call:answer')
+   socket.emit('call:answered') <----- Relayed <-----------------------
+   
+   // PeerConnection Negotiation
+   createPeerConnection()
+   addTrack(localStream)
+   createOffer()
+   socket.emit('call:offer') --------> Relayed ----------------------> setRemoteDescription(offer)
+                                                                       createAnswer()
+                                                                       socket.emit('call:answer-sdp')
+   socket.emit('call:answer-sdp') <--- Relayed <---------------------
+   setRemoteDescription(answer)
+   
+   // ICE candidate exchanges
+   onicecandidate -------------------> Relayed ----------------------> addIceCandidate()
+   addIceCandidate() <---------------- Relayed <---------------------- onicecandidate
+   
+   ========================= P2P MEDIA CHANNEL ESTABLISHED =========================
+```
+
+### 🗄️ Database Normalization Schema
+```text
+                                  +-------------------+
+                                  |       users       |<-----------------------+
+                                  +-------------------+                        |
+                                    |        |      ^                          |
+                                    |        |      | (uploader)               |
+  +-----------------------+         |        |  +---+------------------+       |
+  |     user_settings     |---------+        |  |      user_otps       |       |
+  +-----------------------+                  |  +----------------------+       |
+                                             v                                 v (viewer)
+  +-----------------------+         +------------------+             +--------------------+
+  |       contacts        |-------->|      media       |             |   status_viewers   |
+  +-----------------------+         +------------------+             +--------------------+
+                                             ^                                 |
+                                             | (message_id)                    v (status_id)
+  +-----------------------+         +------------------+             +--------------------+
+  |         chats         |<--------|     messages     |<------------|      statuses      |
+  +-----------------------+         +------------------+             +--------------------+
+     |                                |              |
+     v (chat_id)                      v (message_id) v (message_id)
+  +-----------------------+         +----------------+
+  |     chat_members      |         | message_status |
+  +-----------------------+         +----------------+
+                                             |
+                                             v
+                                    +----------------+
+                                    |message_reactions|
+                                    +----------------+
+```
 
 ---
 
-# 🛠 Tech Stack
-
-## Frontend
-- React.js
-- TypeScript
-- Tailwind CSS
-- Axios
-- Modern UI Components
-
-## Backend
-- Node.js
-- Express.js
-- JWT Authentication
-- REST APIs
-
-## Database
-- MongoDB
-- Mongoose ODM
-
-## Authentication
-- JWT Tokens
-- OAuth Support
-- Secure Sessions
-
-## AI Integration
-- OpenAI API
-- Extensible AI Architecture
-
-## Deployment
-- Vercel
-- Render
-- Railway
-- MongoDB Atlas
-
----
-
-# 📂 Project Structure
+## 📂 Project Structure
 
 ```bash
 NexChat/
-│
-├── client/
-│   ├── public/
+├── Frontend/                  # Next.js web application
+│   ├── public/                # Static assets and icons
 │   ├── src/
-│   ├── components/
-│   ├── pages/
-│   ├── hooks/
-│   ├── services/
-│   └── assets/
+│   │   ├── app/               # Page routing (auth, chat, calls, status)
+│   │   ├── components/        # UI layout and interactive components
+│   │   ├── context/           # Global Contexts (AuthContext, Theme)
+│   │   └── utils/             # Helper libs and API wrappers
+│   └── Dockerfile
 │
-├── server/
-│   ├── controllers/
-│   ├── models/
-│   ├── routes/
-│   ├── middleware/
-│   ├── config/
-│   └── utils/
+├── Backend/                   # Node/Express API & WebSocket server
+│   ├── src/
+│   │   ├── config/            # PostgreSQL database client pool
+│   │   ├── db/                # schema.sql and initialization scripts
+│   │   ├── middleware/        # JWT auth filters & validators
+│   │   ├── routes/            # MVC route controllers
+│   │   ├── socket/            # Real-time event and signalling handlers
+│   │   └── app.js             # Express application configuration
+│   └── Dockerfile
 │
-├── docs/
-├── screenshots/
-├── .env.example
-├── package.json
-└── README.md
+├── screenshots/               # Showcase screenshots
+└── start.sh                   # Docker orchestration startup script
+```
 
 ---
 
-# ⚙️ Getting Started
+## 🌐 API Endpoints reference
 
-## Prerequisites
+### 🔐 Authentication (`/api/auth`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/auth/register` | Create user profile & dispatch OTP code |
+| `POST` | `/api/auth/login` | Check credentials & issue JWT keys |
+| `POST` | `/api/auth/verify-otp` | Verify OTP code and activate profile |
+| `POST` | `/api/auth/refresh` | Renew expired Access Token using Refresh Token |
 
-Make sure you have installed:
+### 💬 Conversations (`/api/chats` & `/api/groups`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET`  | `/api/chats` | Retrieve user active inbox list |
+| `POST` | `/api/chats` | Start direct 1:1 conversation |
+| `POST` | `/api/groups` | Initialize new group room |
+| `GET`  | `/api/chats/:id/messages` | Fetch chat message logs (paginated) |
 
-- Node.js (v18+)
-- npm or yarn
-- MongoDB
-- Git
-
-Verify installation:
-
-```bash
-node -v
-npm -v
-git --version
-
----
-
-# 📥 Installation
-
-### Clone Repository
-
-```bash
-git clone https://github.com/vedantdubey19/NexChat.git
-
-### Navigate To Project
-
-```bash
-cd NexChat
-
-### Install Dependencies
-
-```bash
-npm install
-
-or
-
-```bash
-yarn install
+### 📞 RTC Calls & Statuses (`/api/calls` & `/api/status`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/calls/initiate` | Log starting call entry in database |
+| `GET`  | `/api/calls/history` | Retrieve call history list |
+| `POST` | `/api/status` | Upload ephemeral story (expires in 24 hours) |
 
 ---
 
-# 🔑 Environment Variables
+## ⚙️ Getting Started
 
-Create a `.env` file in the root directory:
+### Prerequisites
+*   Node.js (v20+)
+*   PostgreSQL 16 database instance (local or hosted on Neon)
+*   Resend API Key
 
-```env
-# Server
-PORT=3001
-NODE_ENV=development
-
-# Frontend
-FRONTEND_URL=http://localhost:3000
-
-# Database
-MONGODB_URI=your_mongodb_connection_string
-
-# Authentication
-JWT_SECRET=your_super_secret_key
-JWT_EXPIRES_IN=7d
-
-# AI Provider
-OPENAI_API_KEY=your_openai_api_key
-
-# GitHub OAuth
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
-
-# Webhook Secret
-GITHUB_WEBHOOK_SECRET=your_webhook_secret
-
----
-
-# ▶️ Running The Project
-
-### Development Mode
-
-```bash
-npm run dev
-
-### Backend Only
-
-```bash
-npm run server
-
-### Frontend Only
-
-```bash
-npm run client
+### Local Installation
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/vedantdubey19/NexChat.git
+    cd NexChat
+    ```
+2.  **Setup Backend environment variables:**
+    Create `Backend/.env` matching this configuration:
+    ```env
+    PORT=3001
+    DATABASE_URL=postgresql://<user>:<password>@<host>/<database>?sslmode=require
+    JWT_SECRET=your_jwt_secret_key
+    RESEND_API_KEY=your_resend_api_key
+    FRONTEND_URL=http://localhost:3000
+    ```
+3.  **Setup Frontend environment variables:**
+    Create `Frontend/.env.local`:
+    ```env
+    NEXT_PUBLIC_API_URL=http://localhost:3001/api
+    NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
+    ```
+4.  **Install dependencies and run:**
+    *   **Backend:**
+        ```bash
+        cd Backend && npm install
+        npm run dev
+        ```
+    *   **Frontend:**
+        ```bash
+        cd Frontend && npm install
+        npm run dev
+        ```
 
 ---
 
-# 🌐 API Endpoints
+## 🚀 Cloud Deployment
 
-## Authentication
+### Frontend (Vercel)
+Deploy `Frontend` root directly to Vercel (Next.js preset). Add `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SOCKET_URL` pointing to the backend domain.
 
-```http
-POST /api/auth/register
-POST /api/auth/login
-POST /api/auth/logout
-GET  /api/auth/profile
-
-## Chat
-
-```http
-GET    /api/chat
-POST   /api/chat
-DELETE /api/chat/:id
-
-## AI
-
-```http
-POST /api/ai/generate
+### Backend (Render / Railway)
+Deploy the `Backend` directory. Render automatically compiles Node.js projects for free web services. Add your database, JWT, and Resend secrets as env variables.
 
 ---
 
-# 📊 Database Design
+## 👨‍💻 Developer & Support
 
-```text
-Users
-│
-├── id
-├── name
-├── email
-├── password
-├── avatar
-└── createdAt
+**Vedant Dubey**
+*   **GitHub:** [@vedantdubey19](https://github.com/vedantdubey19)
+*   **LinkedIn:** [vedantdubey19](https://linkedin.com/in/vedantdubey19)
 
-Chats
-│
-├── id
-├── userId
-├── messages
-├── createdAt
-└── updatedAt
-
-Messages
-│
-├── id
-├── sender
-├── content
-├── timestamp
-└── conversationId
-
----
-
-# 🚀 Deployment
-
-## Frontend Deployment
-
-### Vercel
-
-```bash
-npm run build
-
-Deploy build folder to Vercel.
-
----
-
-## Backend Deployment
-
-### Render
-
-1. Connect GitHub repository
-2. Configure environment variables
-3. Deploy Node.js service
-
----
-
-## Database Deployment
-
-### MongoDB Atlas
-
-1. Create Cluster
-2. Generate Connection String
-3. Add Network Access
-4. Configure Environment Variables
-
----
-
-# 📸 Screenshots
-
-Add project screenshots here:
-
-![Home Page](screenshots/home.png)
-
-![Chat Interface](screenshots/chat.png)
-
-![Authentication](screenshots/login.png)
-
----
-
-# 🎯 Future Enhancements
-
-- Voice Chat Support
-- File Sharing
-- Group Conversations
-- AI Memory
-- Multi-Model AI Support
-- Push Notifications
-- Dark/Light Theme Toggle
-- Mobile Application
-- End-to-End Encryption
-
----
-
-# 🤝 Contributing
-
-Contributions are welcome!
-
-### Steps
-
-1. Fork the repository
-2. Create a feature branch
-
-```bash
-git checkout -b feature/amazing-feature
-
-3. Commit your changes
-
-```bash
-git commit -m "Add amazing feature"
-
-4. Push to branch
-
-```bash
-git push origin feature/amazing-feature
-
-5. Open a Pull Request
-
----
-
-# 👨‍💻 Developer
-
-## Vedant Dubey
-
-Aspiring Software Engineer | AI Engineer | Full-Stack Developer
-
-### Connect With Me
-
-- GitHub: https://github.com/vedantdubey19
-- LinkedIn: https://linkedin.com/in/vedantdubey19
-
----
-
-# ⭐ Show Your Support
-
-If you found this project useful:
-
-⭐ Star the repository
-
-🍴 Fork the repository
-
-📢 Share it with others
-
----
-
-# 📜 License
-
-Distributed under the MIT License.
-
----
-
-<div align="center">
-
-### 🚀 Building Intelligent Conversations With NexChat
-
-Made with ❤️ by Vedant Dubey
-
-</div>
+*If this architecture helped you or you like the code, please drop a ⭐ on [GitHub](https://github.com/vedantdubey19/NexChat)!*
