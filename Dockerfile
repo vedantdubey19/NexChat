@@ -1,6 +1,6 @@
 # Build frontend
 FROM node:20-alpine AS frontend-builder
-WORKDIR /app/Frontend
+WORKDIR /home/node/app/Frontend
 COPY Frontend/package*.json ./
 RUN npm install
 COPY Frontend/ ./
@@ -10,18 +10,25 @@ RUN npm run build
 
 # Final runner
 FROM node:20-alpine
-WORKDIR /app
+WORKDIR /home/node/app
 
-# Copy backend
-COPY Backend/package*.json ./Backend/
+# Copy backend dependencies configuration
+COPY --chown=node:node Backend/package*.json ./Backend/
+
+# Switch to the non-root user 'node' (UID 1000)
+USER node
+
+# Install backend dependencies
 RUN cd Backend && npm install
-COPY Backend/ ./Backend/
 
-# Copy built frontend
-COPY --from=frontend-builder /app/Frontend ./Frontend
+# Copy backend source code
+COPY --chown=node:node Backend/ ./Backend/
+
+# Copy built frontend from builder stage
+COPY --chown=node:node --from=frontend-builder /home/node/app/Frontend ./Frontend
 
 # Setup start script
-COPY start.sh ./
+COPY --chown=node:node start.sh ./
 RUN chmod +x start.sh
 
 # Expose Hugging Face default port
