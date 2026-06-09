@@ -25,7 +25,7 @@ pinned: false
 
 | Landing Page | Sign Up | Status Feed |
 | :---: | :---: | :---: |
-| <img src="screenshots/landing.png" width="280" alt="Landing Page"/> | <img src="screenshots/signup.png" width="280" alt="Sign Up"/> | <img src="screenshots/status.png" width="280" alt="Status Feed"/> |
+| <img src="https://raw.githubusercontent.com/vedantdubey19/NexChat/main/screenshots/landing.png" width="280" alt="Landing Page"/> | <img src="https://raw.githubusercontent.com/vedantdubey19/NexChat/main/screenshots/signup.png" width="280" alt="Sign Up"/> | <img src="https://raw.githubusercontent.com/vedantdubey19/NexChat/main/screenshots/status.png" width="280" alt="Status Feed"/> |
 
 ---
 
