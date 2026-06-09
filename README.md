@@ -21,6 +21,12 @@ pinned: false
 
 </div>
 
+## 📸 Screenshots
+
+| Landing Page | Sign Up | Status Feed |
+| :---: | :---: | :---: |
+| <img src="screenshots/landing.png" width="280" alt="Landing Page"/> | <img src="screenshots/signup.png" width="280" alt="Sign Up"/> | <img src="screenshots/status.png" width="280" alt="Status Feed"/> |
+
 ---
 
 ## 📖 Project Overview
