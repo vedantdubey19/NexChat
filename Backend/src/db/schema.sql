@@ -18,6 +18,8 @@ CREATE TABLE users (
     bio VARCHAR(500) DEFAULT '',
     is_online BOOLEAN DEFAULT false,
     last_seen TIMESTAMPTZ DEFAULT NOW(),
+    email_verified BOOLEAN DEFAULT false,
+    phone_verified BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
