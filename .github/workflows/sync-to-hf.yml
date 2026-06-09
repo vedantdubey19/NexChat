@@ -14,10 +14,14 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          rm -rf screenshots/
+          rm -rf .git
+          git init
           git config --global user.email "bot@huggingface.co"
           git config --global user.name "HF Sync Bot"
-          rm -rf screenshots/
+          git checkout -b main
           git add -A
-          git commit -m "temp: remove binary assets for Hugging Face Space" || true
+          git commit -m "sync: deploy to Hugging Face Spaces"
           git push --force https://vedantdubey19:$HF_TOKEN@huggingface.co/spaces/vedantdubey19/Nexchat main
+
 
