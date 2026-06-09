@@ -1,3 +1,13 @@
+---
+title: NexChat
+emoji: 💬
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 💬 NexChat — Real-Time Messaging Platform
 
 <p align="center">
