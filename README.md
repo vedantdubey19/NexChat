@@ -191,37 +191,244 @@ docker-compose down -v
 
 ## 🔐 Authentication Flow
 
-1. **Register** → enter name, username, email/phone + password
-2. **OTP sent** → 6-digit code logged in backend terminal (dev mode)
-3. **Verify OTP** → account activated, JWT tokens issued
-4. **Login** → identifier (email / phone / username) + password
-5. **Token refresh** → access token auto-refreshed on 401
+1. **Register**: User enters full name, username, password, and optional email or phone.
+2. **OTP Verification**:
+   - OTP codes are generated for provided email/phone (valid for 10 minutes).
+   - In production, email OTP is dispatched via Resend. In development, OTP is printed to the server terminal.
+3. **Activation**: On verification of OTP, the user is marked active, and JWT tokens (access + refresh) are issued.
+4. **Login**: Login accepts username, email, or phone. Unverified accounts trigger new OTP issuance.
+5. **Token Rotation**: Client refreshes the access token using `/api/auth/refresh` on token expiration.
 
 ---
 
 ## 📡 API Endpoints
 
+All endpoints require a JWT bearer token in the `Authorization` header (`Bearer <token>`) except registration, login, and OTP verification/resend.
+
+### Authentication (`/api/auth`)
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login |
-| POST | `/api/auth/verify-otp` | Verify OTP |
-| POST | `/api/auth/logout` | Logout |
-| GET | `/api/chats` | Get all chats |
-| POST | `/api/chats` | Create / find direct chat |
-| GET | `/api/chats/:id/messages` | Get messages |
-| GET | `/api/users/search?q=` | Search users globally |
-| GET | `/api/users/profile` | Get own profile |
-| PUT | `/api/users/profile` | Update profile |
-| GET | `/api/settings` | Get user settings |
-| PUT | `/api/settings` | Update settings |
+|:---|:---|:---|
+| `POST` | `/api/auth/register` | Register a new user |
+| `POST` | `/api/auth/login` | Authenticate username/email/phone + password |
+| `POST` | `/api/auth/verify-otp` | Verify 6-digit OTP code to activate user and issue tokens |
+| `POST` | `/api/auth/resend-otp` | Resend new email/phone OTP |
+| `POST` | `/api/auth/refresh` | Rotate refresh token and get a new access token |
+| `POST` | `/api/auth/logout` | Terminate session and go offline |
+
+### Users & Profiles (`/api/users`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/users/profile` | Retrieve own profile info along with counts |
+| `PUT` | `/api/users/profile` | Update profile fields (name, bio, avatar url, email, etc.) |
+| `GET` | `/api/users/search?q=` | Global search users by name or username (min 2 characters) |
+| `PUT` | `/api/users/change-password` | Update account password |
+
+### Contact Management (`/api/contacts`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/contacts` | Get user's contacts list (excluding blocked users) |
+| `POST` | `/api/contacts/sync` | Add/sync a contact user by ID |
+| `GET` | `/api/contacts/search?q=` | Search within contacts list |
+
+### Chat Conversations (`/api/chats`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/chats` | Get all user chats (includes type, pin/mute/archive details) |
+| `POST` | `/api/chats` | Create or retrieve a direct 1:1 chat |
+| `GET` | `/api/chats/:id/messages` | Fetch chat messages (paginated) |
+| `PUT` | `/api/chats/:id/pin` | Pin / unpin chat |
+| `PUT` | `/api/chats/:id/mute` | Mute / unmute notifications |
+| `PUT` | `/api/chats/:id/archive` | Archive / unarchive chat |
+| `DELETE` | `/api/chats/:id` | Delete conversation (leaves chat room) |
+
+### Group Chats (`/api/groups`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/groups` | Create group chat with initial members |
+| `GET` | `/api/groups/:id` | Fetch group info and member list |
+| `PUT` | `/api/groups/:id` | Update group info (name, description, avatar) |
+| `POST` | `/api/groups/:id/members` | Add new member(s) to group |
+| `DELETE` | `/api/groups/:id/members/:userId` | Remove member from group |
+
+### Messages & Reactions (`/api/messages`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/messages` | Send message (text, media metadata, or reply reference) |
+| `PUT` | `/api/messages/:id/react` | Toggle an emoji reaction on a message |
+| `PUT` | `/api/messages/:id` | Edit message content |
+| `DELETE` | `/api/messages/:id` | Soft delete a message |
+
+### Media Uploads (`/api/media`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/media/upload` | Upload file attachment (multer upload, max 50MB) |
+| `GET` | `/api/media/:chatId` | Get all shared files and media in a chat |
+
+### Status Stories (`/api/status`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/status` | Create status/story (expires in 24 hours) |
+| `GET` | `/api/status/feed` | Retrieve active status feed from contacts |
+| `GET` | `/api/status/:id/viewers` | Get list of users who viewed a status |
+
+### Call Log (`/api/calls`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `POST` | `/api/calls/initiate` | Log initiated voice/video call |
+| `GET` | `/api/calls/history` | Get call logs (limited to 50 entries) |
+
+### Settings (`/api/settings`)
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/settings` | Retrieve user preferences (theme, language, privacy, etc.) |
+| `PUT` | `/api/settings` | Update general preferences (theme, language, font, etc.) |
+| `PUT` | `/api/settings/privacy` | Update privacy rules (last seen, read receipts, etc.) |
+| `PUT` | `/api/settings/notifications` | Toggle notification triggers |
+
+---
+
+## ⚡ Socket.IO Real-time Events
+
+NexChat uses Socket.IO for real-time messaging, typing events, and WebRTC signaling. The server handles token authentication on connect.
+
+### Message Events
+* **`message:send`** (Client → Server)
+  - Sends a chat message.
+  - Payload: `{ chatId: string, content: string, type: string, replyTo?: string, metadata?: object }`
+* **`message:new`** (Server → Client)
+  - Broadcasts new message to chat room.
+* **`message:delivered`** (Client → Server)
+  - Updates delivery status when a message arrives.
+* **`message:seen`** (Client → Server)
+  - Updates status when user reads a message.
+* **`message:status`** (Server → Client)
+  - Relays receipt updates (`delivered` or `read`) to chat members.
+* **`message:edit`** / **`message:delete`** (Server → Client)
+  - Informs clients of modified content or soft-deleted messages.
+
+### Typing Indicators
+* **`typing:start`** (Client → Server) / (Server → Client)
+  - Triggers typing indicator in chat. Payload: `{ chatId }`
+* **`typing:stop`** (Client → Server) / (Server → Client)
+  - Clears typing indicator in chat. Payload: `{ chatId }`
+
+### User Presence
+* **`user:online`** / **`user:offline`** (Server → Client)
+  - Broadcasts contact presence changes to all online users.
+
+### WebRTC Calling Signals
+* **`call:initiate`** (Client → Server) / **`call:incoming`** (Server → Client)
+  - Signals caller is calling callee.
+* **`call:answer`** (Client → Server) / **`call:answered`** (Server → Client)
+  - Signals callee has accepted call.
+* **`call:offer`** (Client ↔ Server ↔ Client)
+  - Transmits WebRTC local description offer to callee.
+* **`call:answer-sdp`** (Client ↔ Server ↔ Client)
+  - Transmits WebRTC remote description answer to caller.
+* **`call:candidate`** (Client ↔ Server ↔ Client)
+  - Relays WebRTC ICE candidate candidates.
+* **`call:end`** (Client → Server) / **`call:ended`** (Server → Client)
+  - Terminates the call.
+
+---
+
+## 🗄️ Database Schema
+
+NexChat uses a normalized PostgreSQL schema designed for integrity and querying speed:
+
+```
+                                  +-------------------+
+                                  |       users       |<-----------------------+
+                                  +-------------------+                        |
+                                    |        |      ^                          |
+                                    |        |      | (uploader)               |
+  +-----------------------+         |        |  +---+------------------+       |
+  |     user_settings     |---------+        |  |      user_otps       |       |
+  +-----------------------+                  |  +----------------------+       |
+                                             v                                 v (viewer)
+  +-----------------------+         +------------------+             +--------------------+
+  |       contacts        |-------->|      media       |             |   status_viewers   |
+  +-----------------------+         +------------------+             +--------------------+
+                                             ^                                 |
+                                             | (message_id)                    v (status_id)
+  +-----------------------+         +------------------+             +--------------------+
+  |         chats         |<--------|     messages     |<------------|      statuses      |
+  +-----------------------+         +------------------+             +--------------------+
+     |                                |              |
+     v (chat_id)                      v (message_id) v (message_id)
+  +-----------------------+         +----------------+
+  |     chat_members      |         | message_status |
+  +-----------------------+         +----------------+
+                                           |
+                                           v
+                                    +----------------+
+                                    |message_reactions|
+                                    +----------------+
+```
+
+### Tables Overview
+1. **`users`**: Contains account profiles (`username`, `email`, `phone`, password hash, online state, and `last_seen`).
+2. **`user_settings`**: Stores custom visibility, notification toggles, UI theme, and layout preferences.
+3. **`user_otps`**: Manages verification codes, types, and expiry timestamps.
+4. **`contacts`**: Handles peer lists with custom nicknames and block flags.
+5. **`chats`**: Defines conversations (both direct `1:1` and multi-user `group` chats).
+6. **`chat_members`**: Bridges users to chats; manages permissions (`admin`/`member`), notifications (`mute`), and chat feeds (`pin`).
+7. **`messages`**: Contains chat logs (supports text, media attachments, replies, edits, and soft deletions).
+8. **`message_status`**: Manages read receipts (`sent` ✓, `delivered` ✓✓, and `read` ✓✓).
+9. **`message_reactions`**: Maps user emoji reactions to individual messages.
+10. **`media`**: Tracks uploaded file sizes, file paths, dimensions, and mime-types.
+11. **`statuses`**: Implements 24-hour ephemeral text/image/video stories.
+12. **`status_viewers`**: Logs viewer lists and view times for stories.
+13. **`calls`**: Logs RTC voice & video call records (states: `initiated`, `ringing`, `answered`, `ended`, `missed`, `declined`).
+14. **`sessions`**: Keeps user JWT sessions (device info, IP, and expires date).
+
+---
+
+## 📞 WebRTC Calling Architecture
+
+NexChat supports WebRTC voice and video calls through a hybrid peer-to-peer and signaling layout:
+
+```
+ Caller Client                       Signaling plane                      Callee Client
+ -------------                       ---------------                      -------------
+  getUserMedia()
+  POST /calls/initiate ------------> Database (logs call)
+  socket.emit('call:initiate') ----> Socket.IO server -------------> socket.emit('call:incoming')
+                                                                      getUserMedia()
+                                                                      socket.emit('call:answer')
+  socket.emit('call:answered') <----- Socket.IO server <-------------
+  
+  // PeerConnection Negotiation
+  createPeerConnection()
+  addTrack(localStream)
+  createOffer()
+  socket.emit('call:offer') --------> Socket.IO server -------------> socket.emit('call:offer')
+                                                                      createPeerConnection()
+                                                                      addTrack(localStream)
+                                                                      setRemoteDescription(offer)
+                                                                      createAnswer()
+                                                                      socket.emit('call:answer-sdp')
+  socket.emit('call:answer-sdp') <--- Socket.IO server <-------------
+  setRemoteDescription(answer)
+  
+  // ICE candidate updates
+  onicecandidate -------------------> Socket.IO server -------------> addIceCandidate()
+  addIceCandidate() <---------------- Socket.IO server <------------- onicecandidate
+  
+  ========================= PEER-TO-PEER MEDIA CHANNEL ESTABLISHED =========================
+```
+
+1. **Signaling**: The Socket.IO server acts as the signaling channel, relaying SDP offers, SDP answers, and ICE candidates between clients.
+2. **Media Stream Acquisition**: Client uses browser `navigator.mediaDevices.getUserMedia` to acquire mic and camera access.
+3. **Connection Hook**: An active `RTCPeerConnection` is negotiated using Google STUN servers (`stun.l.google.com:19302`) to traverse NAT firewall tables.
+4. **Mock Fallback**: If a chat is initiated with a simulated/mock user (e.g. testing), the Call Overlay switches to active status after a 3-second simulation delay for testing UI call states.
 
 ---
 
 ## 🔮 Roadmap
 
 - [ ] 🔐 End-to-end encryption
-- [ ] 🖼️ Image & file sharing in chat
+- [x] 🖼️ Image & file sharing in chat (using media API upload)
 - [ ] 📊 Admin dashboard
 - [ ] 📱 React Native mobile app
 - [ ] 🤖 AI chat assistant integration
